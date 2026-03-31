@@ -254,9 +254,11 @@ def train(
     )
     coupling_lambda = cfg.get("coupling_lambda", 0.1)
 
-    # GPU for PPO gradient updates, CPU for rollout inference (small MLP, no sync overhead)
-    train_device = "cuda" if torch.cuda.is_available() else "cpu"
+    # For 256x256 MLP with batch=64, CPU is faster than GPU
+    # (CUDA kernel launch + sync overhead >> compute for small models)
+    # GPU only helps for batch > ~1000 or models > ~10M params
     infer_device = "cpu"
+    train_device = "cpu"
 
     torch.manual_seed(seed)
     np.random.seed(seed)
@@ -343,22 +345,14 @@ def train(
         dt_rollout = time.time() - t_rollout
         total_steps += ppo_cfg.n_steps * ppo_cfg.n_envs
 
-        # PPO update — move to train_device if GPU available
+        # PPO update (all CPU — no device migration needed)
         t_ppo = time.time()
-        if train_device != infer_device:
-            policy.to(train_device)
-            value_net.to(train_device)
-
         policy.train()
         value_net.train()
         update_metrics = ppo_update(
             policy, value_net, buffer, ppo_cfg,
             opt_policy, opt_value, train_device,
         )
-
-        if train_device != infer_device:
-            policy.to(infer_device)
-            value_net.to(infer_device)
         dt_ppo = time.time() - t_ppo
 
         log = {
