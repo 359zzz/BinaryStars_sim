@@ -240,6 +240,164 @@ def compute_entanglement_features(M: np.ndarray, **kwargs) -> np.ndarray:
     return np.array(features, dtype=np.float32)
 
 
+# ── Bipartite entanglement spectrum & entropy ────────────────────────────────
+
+def bipartite_reduced_density_matrix(
+    psi: np.ndarray, n_L: int, n_R: int,
+) -> np.ndarray:
+    """Compute reduced density matrix ρ_L = Tr_R(|ψ⟩⟨ψ|).
+
+    Parameters
+    ----------
+    psi : state vector of length 2^(n_L + n_R)
+    n_L : number of qubits in subsystem L (left arm)
+    n_R : number of qubits in subsystem R (right arm)
+
+    Returns
+    -------
+    rho_L : (2^n_L, 2^n_L) complex Hermitian matrix
+    """
+    psi = np.asarray(psi, dtype=complex).ravel()
+    dim_L = 2**n_L
+    dim_R = 2**n_R
+    Psi = psi.reshape(dim_L, dim_R)
+    return Psi @ Psi.conj().T
+
+
+def entanglement_spectrum(
+    psi: np.ndarray, n_L: int, n_R: int,
+) -> np.ndarray:
+    """Eigenvalues of ρ_L sorted in decreasing order.
+
+    These are the Schmidt coefficients squared. For a product state,
+    only one eigenvalue is nonzero (= 1). For a maximally entangled
+    state of min(n_L, n_R) qubits, eigenvalues are uniform.
+
+    Returns
+    -------
+    spectrum : (2^n_L,) array, sorted descending, sums to 1
+    """
+    rho_L = bipartite_reduced_density_matrix(psi, n_L, n_R)
+    eigenvalues = np.linalg.eigvalsh(rho_L).real
+    # Clamp numerical noise
+    eigenvalues = np.maximum(eigenvalues, 0.0)
+    # Sort descending
+    eigenvalues = np.sort(eigenvalues)[::-1]
+    return eigenvalues
+
+
+def bipartite_entanglement_entropy(
+    psi: np.ndarray, n_L: int, n_R: int,
+) -> float:
+    """von Neumann entropy S(ρ_L) = -Σ λ_k log₂ λ_k.
+
+    Returns 0.0 for product states, log₂(min(2^n_L, 2^n_R)) for
+    maximally entangled states.
+    """
+    spec = entanglement_spectrum(psi, n_L, n_R)
+    # Filter out zeros to avoid log(0)
+    nonzero = spec[spec > 1e-15]
+    if len(nonzero) == 0:
+        return 0.0
+    return float(-np.sum(nonzero * np.log2(nonzero)))
+
+
+def spectral_distance(
+    spec1: np.ndarray, spec2: np.ndarray,
+    S1: float | None = None, S2: float | None = None,
+) -> float:
+    """Entanglement spectral distance D(R₁, R₂).
+
+    D = |S₁ - S₂| + ||λ̃₁ - λ̃₂||₂
+
+    where λ̃ᵢ is zero-padded to equal length.
+
+    Parameters
+    ----------
+    spec1, spec2 : entanglement spectra (sorted descending)
+    S1, S2 : precomputed entropies (optional, computed from spectra if None)
+    """
+    spec1 = np.asarray(spec1)
+    spec2 = np.asarray(spec2)
+
+    # Zero-pad to equal length
+    max_len = max(len(spec1), len(spec2))
+    s1 = np.zeros(max_len)
+    s2 = np.zeros(max_len)
+    s1[:len(spec1)] = spec1
+    s2[:len(spec2)] = spec2
+
+    # Entropy difference
+    if S1 is None:
+        nz = spec1[spec1 > 1e-15]
+        S1 = float(-np.sum(nz * np.log2(nz))) if len(nz) > 0 else 0.0
+    if S2 is None:
+        nz = spec2[spec2 > 1e-15]
+        S2 = float(-np.sum(nz * np.log2(nz))) if len(nz) > 0 else 0.0
+
+    return abs(S1 - S2) + float(np.linalg.norm(s1 - s2))
+
+
+def compute_entanglement_spectrum_from_mass_matrix(
+    M: np.ndarray,
+    n_L: int,
+    n_R: int,
+    t_star: float | None = None,
+) -> dict:
+    """Full pipeline: M(q) → Hamiltonian → evolve → entanglement spectrum.
+
+    Parameters
+    ----------
+    M : (n, n) mass matrix where n = n_L + n_R
+    n_L : number of joints in left arm
+    n_R : number of joints in right arm
+    t_star : evolution time (default: π/(4·max|J_ij|))
+
+    Returns
+    -------
+    dict with keys: 'spectrum', 'entropy', 'J_matrix', 'h_vector', 'psi'
+    """
+    n = M.shape[0]
+    assert n == n_L + n_R, f"n={n} != n_L+n_R={n_L+n_R}"
+
+    J = normalized_coupling_matrix(M)
+    h = local_field_terms(M)
+
+    H = heisenberg_hamiltonian(J, h, max_qubits=16)
+
+    # Characteristic time
+    J_off = np.abs(J.copy())
+    np.fill_diagonal(J_off, 0.0)
+    max_J = np.max(J_off)
+    if t_star is None:
+        if max_J < 1e-15:
+            t_star = 1.0  # No coupling, S will be 0
+        else:
+            t_star = np.pi / (4.0 * max_J)
+
+    # Initial state |0...01⟩ (last qubit excited)
+    dim = 2**n
+    psi0 = np.zeros(dim, dtype=complex)
+    psi0[1] = 1.0
+
+    # Evolve
+    evolver = EigenEvolver(H)
+    psi = evolver.evolve(psi0, t_star)
+
+    # Entanglement spectrum
+    spec = entanglement_spectrum(psi, n_L, n_R)
+    S = bipartite_entanglement_entropy(psi, n_L, n_R)
+
+    return {
+        'spectrum': spec,
+        'entropy': S,
+        'J_matrix': J,
+        'h_vector': h,
+        'psi': psi,
+        't_star': t_star,
+    }
+
+
 def compute_classical_features(M: np.ndarray) -> np.ndarray:
     """|J_ij| upper-triangle flattened -> (n*(n-1)/2,) vector.
 

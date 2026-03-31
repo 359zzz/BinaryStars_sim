@@ -1,0 +1,306 @@
+<!-- Piper 12-DOF Dual Arm (ALOHA-style) — MuJoCo MJCF
+     Two 6-DOF lightweight Piper arms mounted on a shared base.
+     Left arm: L_j1..L_j6, L_link1..L_link6, L_ee
+     Right arm: R_j1..R_j6, R_link1..R_link6, R_ee (mirrored X)
+     All joint axes are local Z. Frame rotations (euler) create the
+     effective pattern: yaw, pitch, pitch, roll, pitch, roll.
+     Link6 = link6 (7g) + gripper_base (145g) combined.
+     Inertial data from piper_params.py / piper_data.py.
+     Joint origin translations and RPY from URDF.
+-->
+<mujoco model="piper12_dual">
+  <compiler angle="radian" inertiafromgeom="false"/>
+
+  <option gravity="0 0 -9.81" timestep="0.002"/>
+
+  <default>
+    <joint damping="0.3" armature="0.001"/>
+    <geom contype="1" conaffinity="1" rgba="0.7 0.7 0.7 1"/>
+    <motor ctrlrange="-20 20" ctrllimited="true"/>
+  </default>
+
+  <asset>
+    <texture type="skybox" builtin="gradient" rgb1="0.3 0.5 0.7" rgb2="0 0 0" width="512" height="512"/>
+    <texture name="grid" type="2d" builtin="checker" rgb1="0.2 0.3 0.4" rgb2="0.1 0.15 0.2" width="512" height="512"/>
+    <material name="floor_mat" texture="grid" texrepeat="8 8" reflectance="0.2"/>
+    <material name="link_mat" rgba="0.6 0.65 0.7 1"/>
+    <material name="joint_mat" rgba="0.3 0.3 0.8 1"/>
+    <material name="ee_mat" rgba="0.9 0.2 0.2 1"/>
+    <material name="base_mat" rgba="0.5 0.5 0.55 1"/>
+    <material name="left_mat" rgba="0.2 0.6 0.4 1"/>
+    <material name="right_mat" rgba="0.6 0.4 0.2 1"/>
+    <material name="grip_mat" rgba="0.4 0.4 0.4 1"/>
+    <material name="object_mat" rgba="0.1 0.7 0.3 1"/>
+  </asset>
+
+  <worldbody>
+    <light diffuse="0.8 0.8 0.8" pos="0 0 3" dir="0 0 -1"/>
+    <light diffuse="0.4 0.4 0.4" pos="0 2 2" dir="0 -0.5 -1"/>
+    <geom type="plane" size="2 2 0.01" material="floor_mat"/>
+
+    <!-- ============================================================ -->
+    <!-- Shared base (Piper mounting plate / ALOHA frame)             -->
+    <!-- ============================================================ -->
+    <body name="base" pos="0 0 0">
+      <geom type="box" size="0.2 0.08 0.06" pos="0 0 0.06" material="base_mat"/>
+      <inertial pos="0 0 0.06" mass="2.0"
+                fullinertia="0.005 0.015 0.015 0 0 0"/>
+
+      <!-- ======================================================== -->
+      <!-- LEFT ARM (mounted at -0.15, 0, 0.123)                   -->
+      <!-- Piper joint1 origin: (0, 0, 0.123)                      -->
+      <!-- ======================================================== -->
+
+      <!-- L_link1 / L_j1: yaw (Z-axis), RPY=(0,0,0) -->
+      <body name="L_link1" pos="-0.15 0 0.123">
+        <joint name="L_j1" type="hinge" axis="0 0 1"
+               limited="true" range="-2.618 2.618"/>
+        <inertial pos="0.000122 0.000105 -0.004386"
+                  mass="0.215052"
+                  fullinertia="1.09639e-04 9.95612e-05 1.16364e-04 2.51e-07 -1.89e-07 1.01e-08"/>
+        <geom type="cylinder" size="0.025 0.02" material="left_mat"/>
+        <geom type="sphere" pos="0 0 0" size="0.02" material="joint_mat"/>
+
+        <!-- L_link2 / L_j2: shoulder pitch, RPY=(1.5708, -0.10095, -3.1416) -->
+        <body name="L_link2" pos="0 0 0" euler="1.5708 -0.10095 -3.1416">
+          <joint name="L_j2" type="hinge" axis="0 0 1"
+                 limited="true" range="-2.094 2.094"/>
+          <inertial pos="0.198666 -0.010927 0.001421"
+                    mass="0.463914"
+                    fullinertia="2.14137e-04 1.00030e-03 1.04417e-03 7.26121e-05 -9.88e-07 -1.33e-06"/>
+          <geom type="capsule" fromto="0 0 0  0.285 0 0" size="0.018" material="left_mat"/>
+          <geom type="sphere" pos="0 0 0" size="0.018" material="joint_mat"/>
+
+          <!-- L_link3 / L_j3: elbow pitch, RPY=(0, 0, -1.759) -->
+          <body name="L_link3" pos="0.28503 0 0" euler="0 0 -1.759">
+            <joint name="L_j3" type="hinge" axis="0 0 1"
+                   limited="true" range="-2.094 2.094"/>
+            <inertial pos="-0.020274 -0.133915 -0.000459"
+                      mass="0.219942"
+                      fullinertia="1.89538e-04 7.14245e-05 2.01213e-04 -8.06e-06 5.10e-07 8.89e-07"/>
+            <geom type="capsule" fromto="0 0 0  -0.022 -0.251 0" size="0.016" material="left_mat"/>
+            <geom type="sphere" pos="0 0 0" size="0.016" material="joint_mat"/>
+
+            <!-- L_link4 / L_j4: wrist roll, RPY=(1.5708, 0, 0) -->
+            <body name="L_link4" pos="-0.021984 -0.25075 0" euler="1.5708 0 0">
+              <joint name="L_j4" type="hinge" axis="0 0 1"
+                     limited="true" range="-2.618 2.618"/>
+              <inertial pos="-9.67e-05 0.000876 -0.004969"
+                        mass="0.131814"
+                        fullinertia="3.96965e-05 5.13320e-05 4.14768e-05 -2.32e-08 -1.15e-07 9.93e-08"/>
+              <geom type="cylinder" size="0.014 0.015" material="left_mat"/>
+              <geom type="sphere" pos="0 0 0" size="0.013" material="joint_mat"/>
+
+              <!-- L_link5 / L_j5: wrist pitch, RPY=(-1.5708, 0, 0) -->
+              <body name="L_link5" pos="0 0 0" euler="-1.5708 0 0">
+                <joint name="L_j5" type="hinge" axis="0 0 1"
+                       limited="true" range="-2.094 2.094"/>
+                <inertial pos="-4.11e-05 -0.056649 -0.003721"
+                          mass="0.134101"
+                          fullinertia="4.10994e-05 5.27723e-05 4.60419e-05 -2.06e-08 1.30e-10 1.91e-07"/>
+                <geom type="capsule" fromto="0 0 0  8.83e-05 -0.091 0" size="0.013" material="left_mat"/>
+                <geom type="sphere" pos="0 0 0" size="0.013" material="joint_mat"/>
+
+                <!-- L_link6 / L_j6: wrist roll, RPY=(1.5708, 0, 0) -->
+                <!-- Combined link6 (7g) + gripper_base (145g) = 152.3g -->
+                <body name="L_link6" pos="8.8259e-05 -0.091 0" euler="1.5708 0 0">
+                  <joint name="L_j6" type="hinge" axis="0 0 1"
+                         limited="true" range="-2.618 2.618"/>
+                  <inertial pos="-0.000175 7.56e-05 0.031032"
+                            mass="0.152309"
+                            fullinertia="9.80860e-05 4.09930e-05 1.14824e-04 -1.33e-07 -8.22e-08 3.47e-08"/>
+                  <geom type="cylinder" size="0.015 0.025" material="left_mat"/>
+                  <geom type="sphere" pos="0 0 0" size="0.013" material="joint_mat"/>
+
+                  <!-- Left end-effector -->
+                  <site name="L_ee" pos="0 0 0.07" size="0.012" rgba="1 0.2 0.2 1"/>
+
+                  <!-- Left gripper -->
+                  <body name="L_gripper" pos="0 0 0.07">
+                    <joint name="L_grip" type="slide" axis="0 1 0"
+                           limited="true" range="0 0.035" damping="5" armature="0.005"/>
+                    <geom type="box" size="0.008 0.004 0.025" pos="0 0.012 0" material="grip_mat"/>
+                    <inertial pos="0 0.012 0" mass="0.03"
+                              fullinertia="3e-06 3e-06 3e-06 0 0 0"/>
+                  </body>
+
+                </body>
+              </body>
+            </body>
+          </body>
+        </body>
+      </body>
+
+      <!-- ======================================================== -->
+      <!-- RIGHT ARM (mounted at +0.15, 0, 0.123, mirrored X)      -->
+      <!-- ======================================================== -->
+
+      <!-- R_link1 / R_j1: yaw (Z-axis), RPY=(0,0,0) -->
+      <body name="R_link1" pos="0.15 0 0.123">
+        <joint name="R_j1" type="hinge" axis="0 0 1"
+               limited="true" range="-2.618 2.618"/>
+        <inertial pos="-0.000122 0.000105 -0.004386"
+                  mass="0.215052"
+                  fullinertia="1.09639e-04 9.95612e-05 1.16364e-04 -2.51e-07 1.89e-07 1.01e-08"/>
+        <geom type="cylinder" size="0.025 0.02" material="right_mat"/>
+        <geom type="sphere" pos="0 0 0" size="0.02" material="joint_mat"/>
+
+        <!-- R_link2 / R_j2: shoulder pitch, mirrored euler -->
+        <body name="R_link2" pos="0 0 0" euler="1.5708 0.10095 -3.1416">
+          <joint name="R_j2" type="hinge" axis="0 0 1"
+                 limited="true" range="-2.094 2.094"/>
+          <inertial pos="-0.198666 -0.010927 0.001421"
+                    mass="0.463914"
+                    fullinertia="2.14137e-04 1.00030e-03 1.04417e-03 -7.26121e-05 9.88e-07 -1.33e-06"/>
+          <geom type="capsule" fromto="0 0 0  -0.285 0 0" size="0.018" material="right_mat"/>
+          <geom type="sphere" pos="0 0 0" size="0.018" material="joint_mat"/>
+
+          <!-- R_link3 / R_j3: elbow pitch, mirrored -->
+          <body name="R_link3" pos="-0.28503 0 0" euler="0 0 1.759">
+            <joint name="R_j3" type="hinge" axis="0 0 1"
+                   limited="true" range="-2.094 2.094"/>
+            <inertial pos="0.020274 -0.133915 -0.000459"
+                      mass="0.219942"
+                      fullinertia="1.89538e-04 7.14245e-05 2.01213e-04 8.06e-06 -5.10e-07 8.89e-07"/>
+            <geom type="capsule" fromto="0 0 0  0.022 -0.251 0" size="0.016" material="right_mat"/>
+            <geom type="sphere" pos="0 0 0" size="0.016" material="joint_mat"/>
+
+            <!-- R_link4 / R_j4: wrist roll, mirrored -->
+            <body name="R_link4" pos="0.021984 -0.25075 0" euler="1.5708 0 0">
+              <joint name="R_j4" type="hinge" axis="0 0 1"
+                     limited="true" range="-2.618 2.618"/>
+              <inertial pos="9.67e-05 0.000876 -0.004969"
+                        mass="0.131814"
+                        fullinertia="3.96965e-05 5.13320e-05 4.14768e-05 2.32e-08 1.15e-07 9.93e-08"/>
+              <geom type="cylinder" size="0.014 0.015" material="right_mat"/>
+              <geom type="sphere" pos="0 0 0" size="0.013" material="joint_mat"/>
+
+              <!-- R_link5 / R_j5: wrist pitch, mirrored -->
+              <body name="R_link5" pos="0 0 0" euler="-1.5708 0 0">
+                <joint name="R_j5" type="hinge" axis="0 0 1"
+                       limited="true" range="-2.094 2.094"/>
+                <inertial pos="4.11e-05 -0.056649 -0.003721"
+                          mass="0.134101"
+                          fullinertia="4.10994e-05 5.27723e-05 4.60419e-05 2.06e-08 -1.30e-10 1.91e-07"/>
+                <geom type="capsule" fromto="0 0 0  -8.83e-05 -0.091 0" size="0.013" material="right_mat"/>
+                <geom type="sphere" pos="0 0 0" size="0.013" material="joint_mat"/>
+
+                <!-- R_link6 / R_j6: wrist roll, mirrored -->
+                <body name="R_link6" pos="-8.8259e-05 -0.091 0" euler="1.5708 0 0">
+                  <joint name="R_j6" type="hinge" axis="0 0 1"
+                         limited="true" range="-2.618 2.618"/>
+                  <inertial pos="0.000175 7.56e-05 0.031032"
+                            mass="0.152309"
+                            fullinertia="9.80860e-05 4.09930e-05 1.14824e-04 1.33e-07 8.22e-08 3.47e-08"/>
+                  <geom type="cylinder" size="0.015 0.025" material="right_mat"/>
+                  <geom type="sphere" pos="0 0 0" size="0.013" material="joint_mat"/>
+
+                  <!-- Right end-effector -->
+                  <site name="R_ee" pos="0 0 0.07" size="0.012" rgba="1 0.2 0.2 1"/>
+
+                  <!-- Right gripper -->
+                  <body name="R_gripper" pos="0 0 0.07">
+                    <joint name="R_grip" type="slide" axis="0 1 0"
+                           limited="true" range="0 0.035" damping="5" armature="0.005"/>
+                    <geom type="box" size="0.008 0.004 0.025" pos="0 0.012 0" material="grip_mat"/>
+                    <inertial pos="0 0.012 0" mass="0.03"
+                              fullinertia="3e-06 3e-06 3e-06 0 0 0"/>
+                  </body>
+
+                </body>
+              </body>
+            </body>
+          </body>
+        </body>
+      </body>
+    </body>
+
+    <!-- ============================================================ -->
+    <!-- Graspable object                                             -->
+    <!-- ============================================================ -->
+    <body name="object" pos="0 0.3 0.6">
+      <joint name="object_free" type="free"/>
+      <geom type="box" size="0.05 0.05 0.05" material="object_mat"
+            mass="0.5" friction="1.0 0.005 0.0001"/>
+      <inertial pos="0 0 0" mass="0.5"
+                fullinertia="8.33e-04 8.33e-04 8.33e-04 0 0 0"/>
+      <site name="object_site" pos="0 0 0" size="0.01" rgba="1 1 0 1"/>
+    </body>
+
+  </worldbody>
+
+  <!-- ============================================================ -->
+  <!-- Equality constraints (weld for grasping)                     -->
+  <!-- ============================================================ -->
+  <equality>
+    <weld name="grasp_left"  body1="L_link6" body2="object"
+          relpose="0 0 0.07 1 0 0 0" active="false"/>
+    <weld name="grasp_right" body1="R_link6" body2="object"
+          relpose="0 0 0.07 1 0 0 0" active="false"/>
+  </equality>
+
+  <!-- ============================================================ -->
+  <!-- Actuators (6+6 revolute + 1+1 prismatic = 14)                -->
+  <!-- ============================================================ -->
+  <actuator>
+    <!-- Left arm -->
+    <motor joint="L_j1" name="a_L_j1" gear="1"/>
+    <motor joint="L_j2" name="a_L_j2" gear="1"/>
+    <motor joint="L_j3" name="a_L_j3" gear="1"/>
+    <motor joint="L_j4" name="a_L_j4" gear="1"/>
+    <motor joint="L_j5" name="a_L_j5" gear="1"/>
+    <motor joint="L_j6" name="a_L_j6" gear="1"/>
+    <motor joint="L_grip" name="a_L_grip" gear="1" ctrlrange="-5 5"/>
+    <!-- Right arm -->
+    <motor joint="R_j1" name="a_R_j1" gear="1"/>
+    <motor joint="R_j2" name="a_R_j2" gear="1"/>
+    <motor joint="R_j3" name="a_R_j3" gear="1"/>
+    <motor joint="R_j4" name="a_R_j4" gear="1"/>
+    <motor joint="R_j5" name="a_R_j5" gear="1"/>
+    <motor joint="R_j6" name="a_R_j6" gear="1"/>
+    <motor joint="R_grip" name="a_R_grip" gear="1" ctrlrange="-5 5"/>
+  </actuator>
+
+  <!-- ============================================================ -->
+  <!-- Sensors                                                       -->
+  <!-- ============================================================ -->
+  <sensor>
+    <!-- Left arm joint positions -->
+    <jointpos joint="L_j1" name="L_j1_pos"/>
+    <jointpos joint="L_j2" name="L_j2_pos"/>
+    <jointpos joint="L_j3" name="L_j3_pos"/>
+    <jointpos joint="L_j4" name="L_j4_pos"/>
+    <jointpos joint="L_j5" name="L_j5_pos"/>
+    <jointpos joint="L_j6" name="L_j6_pos"/>
+    <jointpos joint="L_grip" name="L_grip_pos"/>
+    <!-- Right arm joint positions -->
+    <jointpos joint="R_j1" name="R_j1_pos"/>
+    <jointpos joint="R_j2" name="R_j2_pos"/>
+    <jointpos joint="R_j3" name="R_j3_pos"/>
+    <jointpos joint="R_j4" name="R_j4_pos"/>
+    <jointpos joint="R_j5" name="R_j5_pos"/>
+    <jointpos joint="R_j6" name="R_j6_pos"/>
+    <jointpos joint="R_grip" name="R_grip_pos"/>
+    <!-- Left arm joint velocities -->
+    <jointvel joint="L_j1" name="L_j1_vel"/>
+    <jointvel joint="L_j2" name="L_j2_vel"/>
+    <jointvel joint="L_j3" name="L_j3_vel"/>
+    <jointvel joint="L_j4" name="L_j4_vel"/>
+    <jointvel joint="L_j5" name="L_j5_vel"/>
+    <jointvel joint="L_j6" name="L_j6_vel"/>
+    <jointvel joint="L_grip" name="L_grip_vel"/>
+    <!-- Right arm joint velocities -->
+    <jointvel joint="R_j1" name="R_j1_vel"/>
+    <jointvel joint="R_j2" name="R_j2_vel"/>
+    <jointvel joint="R_j3" name="R_j3_vel"/>
+    <jointvel joint="R_j4" name="R_j4_vel"/>
+    <jointvel joint="R_j5" name="R_j5_vel"/>
+    <jointvel joint="R_j6" name="R_j6_vel"/>
+    <jointvel joint="R_grip" name="R_grip_vel"/>
+    <!-- End-effector positions -->
+    <framepos objtype="site" objname="L_ee" name="L_ee_pos"/>
+    <framepos objtype="site" objname="R_ee" name="R_ee_pos"/>
+    <!-- Object position -->
+    <framepos objtype="body" objname="object" name="object_pos"/>
+  </sensor>
+</mujoco>

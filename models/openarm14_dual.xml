@@ -1,0 +1,338 @@
+<!-- OpenArm v10 14-DOF Dual Arm — MuJoCo MJCF
+     Two 7-DOF arms mounted on a shared torso body.
+     Left arm: L_j1..L_j7, L_link0..L_link6, L_ee
+     Right arm: R_j1..R_j7, R_link0..R_link6, R_ee (mirrored X)
+     Plus 1-DOF prismatic gripper per arm: L_grip, R_grip
+     Joint axes (per arm): Z, -X, Z, Y, Z, X, Y
+     Inertial data from openarm_data.py.
+-->
+<mujoco model="openarm14_dual">
+  <compiler angle="radian" inertiafromgeom="false"/>
+
+  <option gravity="0 0 -9.81" timestep="0.002"/>
+
+  <default>
+    <joint damping="0.5" armature="0.001"/>
+    <geom contype="1" conaffinity="1" rgba="0.7 0.7 0.7 1"/>
+    <motor ctrlrange="-50 50" ctrllimited="true"/>
+  </default>
+
+  <asset>
+    <texture type="skybox" builtin="gradient" rgb1="0.3 0.5 0.7" rgb2="0 0 0" width="512" height="512"/>
+    <texture name="grid" type="2d" builtin="checker" rgb1="0.2 0.3 0.4" rgb2="0.1 0.15 0.2" width="512" height="512"/>
+    <material name="floor_mat" texture="grid" texrepeat="8 8" reflectance="0.2"/>
+    <material name="link_mat" rgba="0.6 0.65 0.7 1"/>
+    <material name="joint_mat" rgba="0.3 0.3 0.8 1"/>
+    <material name="ee_mat" rgba="0.9 0.2 0.2 1"/>
+    <material name="torso_mat" rgba="0.5 0.5 0.55 1"/>
+    <material name="left_mat" rgba="0.2 0.5 0.8 1"/>
+    <material name="right_mat" rgba="0.8 0.5 0.2 1"/>
+    <material name="grip_mat" rgba="0.4 0.4 0.4 1"/>
+    <material name="object_mat" rgba="0.1 0.7 0.3 1"/>
+  </asset>
+
+  <worldbody>
+    <light diffuse="0.8 0.8 0.8" pos="0 0 3" dir="0 0 -1"/>
+    <light diffuse="0.4 0.4 0.4" pos="0 2 2" dir="0 -0.5 -1"/>
+    <geom type="plane" size="2 2 0.01" material="floor_mat"/>
+
+    <!-- ============================================================ -->
+    <!-- Torso (shared base for both arms)                            -->
+    <!-- ============================================================ -->
+    <body name="torso" pos="0 0 0.6">
+      <geom type="box" size="0.25 0.1 0.1" material="torso_mat"/>
+      <inertial pos="0 0 0" mass="5.0"
+                fullinertia="0.02 0.06 0.06 0 0 0"/>
+
+      <!-- ======================================================== -->
+      <!-- LEFT ARM (mounted at -0.2, 0, 0.098 relative to torso)  -->
+      <!-- pos adjusts so arm base is at world z=0.698              -->
+      <!-- ======================================================== -->
+      <body name="L_base" pos="-0.2 0 0.098">
+        <geom type="cylinder" size="0.04 0.03" rgba="0.3 0.3 0.6 1"/>
+
+        <!-- L_link0 / L_j1 (Z-axis) -->
+        <body name="L_link0" pos="0 0 0.0625">
+          <joint name="L_j1" type="hinge" axis="0 0 1"
+                 limited="true" range="-1.309 1.309"/>
+          <inertial pos="0.00115 0.0000332 0.0540"
+                    mass="1.1417"
+                    fullinertia="0.001567 0.001273 0.001016 -1e-06 -2.9e-05 1e-06"/>
+          <geom type="capsule" fromto="0 0 0  0 0 0.06" size="0.03" material="left_mat"/>
+          <geom type="sphere" pos="0 0 0" size="0.025" material="joint_mat"/>
+
+          <!-- L_link1 / L_j2 (-X axis) -->
+          <body name="L_link1" pos="-0.0301 0 0.06" euler="1.5708 0 0">
+            <joint name="L_j2" type="hinge" axis="-1 0 0"
+                   limited="true" range="-0.157 1.571"/>
+            <inertial pos="0.00840 0.0 0.03257"
+                      mass="0.2775"
+                      fullinertia="0.000359 0.000376 0.000232 1e-06 -0.000109 1e-06"/>
+            <geom type="capsule" fromto="0 0 0  0 0 0.065" size="0.022" material="left_mat"/>
+            <geom type="sphere" pos="0 0 0" size="0.02" material="joint_mat"/>
+
+            <!-- L_link2 / L_j3 (Z-axis) -->
+            <body name="L_link2" pos="0.0301 0 0.06625">
+              <joint name="L_j3" type="hinge" axis="0 0 1"
+                     limited="true" range="-1.484 1.484"/>
+              <inertial pos="-0.00210 0.000555 0.0905"
+                        mass="1.0739"
+                        fullinertia="0.004372 0.004319 0.000661 1e-06 1.1e-05 -3.6e-05"/>
+              <geom type="capsule" fromto="0 0 0  0 0 0.154" size="0.028" material="left_mat"/>
+              <geom type="sphere" pos="0 0 0" size="0.02" material="joint_mat"/>
+
+              <!-- L_link3 / L_j4 (Y-axis) -->
+              <body name="L_link3" pos="0 0.0315 0.15375">
+                <joint name="L_j4" type="hinge" axis="0 1 0"
+                       limited="true" range="0 2.356"/>
+                <inertial pos="-0.00290 -0.03031 0.06340"
+                          mass="0.6349"
+                          fullinertia="0.000623 0.000511 0.000334 -1e-06 -1.9e-05 3.8e-05"/>
+                <geom type="capsule" fromto="0 0 0  0 -0.0315 0.096" size="0.022" material="left_mat"/>
+                <geom type="sphere" pos="0 0 0" size="0.018" material="joint_mat"/>
+
+                <!-- L_link4 / L_j5 (Z-axis) -->
+                <body name="L_link4" pos="0 -0.0315 0.0955">
+                  <joint name="L_j5" type="hinge" axis="0 0 1"
+                         limited="true" range="-1.484 1.484"/>
+                  <inertial pos="-0.00305 0.000887 0.04308"
+                            mass="0.6157"
+                            fullinertia="0.000423 0.000445 0.000324 -8e-06 6e-06 -6e-06"/>
+                  <geom type="capsule" fromto="0 0 0  0 0 0.12" size="0.02" material="left_mat"/>
+                  <geom type="sphere" pos="0 0 0" size="0.016" material="joint_mat"/>
+
+                  <!-- L_link5 / L_j6 (X-axis) -->
+                  <body name="L_link5" pos="0.0375 0 0.1205">
+                    <joint name="L_j6" type="hinge" axis="1 0 0"
+                           limited="true" range="-0.698 0.698"/>
+                    <inertial pos="-0.03714 0.000332 -0.0000950"
+                              mass="0.4752"
+                              fullinertia="0.000143 0.000157 0.000159 1e-06 1e-06 1e-06"/>
+                    <geom type="capsule" fromto="0 0 0  -0.0375 0 0" size="0.016" material="left_mat"/>
+                    <geom type="sphere" pos="0 0 0" size="0.014" material="joint_mat"/>
+
+                    <!-- L_link6 / L_j7 (Y-axis) -->
+                    <body name="L_link6" pos="-0.0375 0 0">
+                      <joint name="L_j7" type="hinge" axis="0 1 0"
+                             limited="true" range="-1.396 1.396"/>
+                      <inertial pos="0.0000688 0.01266 0.06952"
+                                mass="0.4660"
+                                fullinertia="0.000639 0.000497 0.000342 1e-06 1e-06 8.9e-05"/>
+                      <geom type="capsule" fromto="0 0 0  0 0 0.07" size="0.018" material="left_mat"/>
+                      <geom type="sphere" pos="0 0 0" size="0.014" material="joint_mat"/>
+
+                      <!-- Left end-effector -->
+                      <site name="L_ee" pos="0 0 0.07" size="0.015" rgba="1 0.2 0.2 1"/>
+
+                      <!-- Left gripper -->
+                      <body name="L_gripper" pos="0 0 0.07">
+                        <joint name="L_grip" type="slide" axis="0 1 0"
+                               limited="true" range="0 0.04" damping="10" armature="0.01"/>
+                        <geom type="box" size="0.01 0.005 0.03" pos="0 0.015 0" material="grip_mat"/>
+                        <inertial pos="0 0.015 0" mass="0.05"
+                                  fullinertia="5e-06 5e-06 5e-06 0 0 0"/>
+                      </body>
+
+                    </body>
+                  </body>
+                </body>
+              </body>
+            </body>
+          </body>
+        </body>
+      </body>
+
+      <!-- ======================================================== -->
+      <!-- RIGHT ARM (mounted at +0.2, 0, 0.098 relative to torso) -->
+      <!-- Mirrored: X positions negated, X-dependent axes flipped  -->
+      <!-- ======================================================== -->
+      <body name="R_base" pos="0.2 0 0.098">
+        <geom type="cylinder" size="0.04 0.03" rgba="0.6 0.3 0.3 1"/>
+
+        <!-- R_link0 / R_j1 (Z-axis, same) -->
+        <body name="R_link0" pos="0 0 0.0625">
+          <joint name="R_j1" type="hinge" axis="0 0 1"
+                 limited="true" range="-1.309 1.309"/>
+          <inertial pos="-0.00115 0.0000332 0.0540"
+                    mass="1.1417"
+                    fullinertia="0.001567 0.001273 0.001016 1e-06 2.9e-05 1e-06"/>
+          <geom type="capsule" fromto="0 0 0  0 0 0.06" size="0.03" material="right_mat"/>
+          <geom type="sphere" pos="0 0 0" size="0.025" material="joint_mat"/>
+
+          <!-- R_link1 / R_j2 (+X axis, mirrored from -X) -->
+          <body name="R_link1" pos="0.0301 0 0.06" euler="1.5708 0 0">
+            <joint name="R_j2" type="hinge" axis="1 0 0"
+                   limited="true" range="-0.157 1.571"/>
+            <inertial pos="-0.00840 0.0 0.03257"
+                      mass="0.2775"
+                      fullinertia="0.000359 0.000376 0.000232 -1e-06 0.000109 1e-06"/>
+            <geom type="capsule" fromto="0 0 0  0 0 0.065" size="0.022" material="right_mat"/>
+            <geom type="sphere" pos="0 0 0" size="0.02" material="joint_mat"/>
+
+            <!-- R_link2 / R_j3 (Z-axis, same) -->
+            <body name="R_link2" pos="-0.0301 0 0.06625">
+              <joint name="R_j3" type="hinge" axis="0 0 1"
+                     limited="true" range="-1.484 1.484"/>
+              <inertial pos="0.00210 0.000555 0.0905"
+                        mass="1.0739"
+                        fullinertia="0.004372 0.004319 0.000661 -1e-06 -1.1e-05 -3.6e-05"/>
+              <geom type="capsule" fromto="0 0 0  0 0 0.154" size="0.028" material="right_mat"/>
+              <geom type="sphere" pos="0 0 0" size="0.02" material="joint_mat"/>
+
+              <!-- R_link3 / R_j4 (Y-axis, same) -->
+              <body name="R_link3" pos="0 0.0315 0.15375">
+                <joint name="R_j4" type="hinge" axis="0 1 0"
+                       limited="true" range="0 2.356"/>
+                <inertial pos="0.00290 -0.03031 0.06340"
+                          mass="0.6349"
+                          fullinertia="0.000623 0.000511 0.000334 1e-06 1.9e-05 3.8e-05"/>
+                <geom type="capsule" fromto="0 0 0  0 -0.0315 0.096" size="0.022" material="right_mat"/>
+                <geom type="sphere" pos="0 0 0" size="0.018" material="joint_mat"/>
+
+                <!-- R_link4 / R_j5 (Z-axis, same) -->
+                <body name="R_link4" pos="0 -0.0315 0.0955">
+                  <joint name="R_j5" type="hinge" axis="0 0 1"
+                         limited="true" range="-1.484 1.484"/>
+                  <inertial pos="0.00305 0.000887 0.04308"
+                            mass="0.6157"
+                            fullinertia="0.000423 0.000445 0.000324 8e-06 -6e-06 -6e-06"/>
+                  <geom type="capsule" fromto="0 0 0  0 0 0.12" size="0.02" material="right_mat"/>
+                  <geom type="sphere" pos="0 0 0" size="0.016" material="joint_mat"/>
+
+                  <!-- R_link5 / R_j6 (-X axis, mirrored from +X) -->
+                  <body name="R_link5" pos="-0.0375 0 0.1205">
+                    <joint name="R_j6" type="hinge" axis="-1 0 0"
+                           limited="true" range="-0.698 0.698"/>
+                    <inertial pos="0.03714 0.000332 -0.0000950"
+                              mass="0.4752"
+                              fullinertia="0.000143 0.000157 0.000159 -1e-06 -1e-06 1e-06"/>
+                    <geom type="capsule" fromto="0 0 0  0.0375 0 0" size="0.016" material="right_mat"/>
+                    <geom type="sphere" pos="0 0 0" size="0.014" material="joint_mat"/>
+
+                    <!-- R_link6 / R_j7 (Y-axis, same) -->
+                    <body name="R_link6" pos="0.0375 0 0">
+                      <joint name="R_j7" type="hinge" axis="0 1 0"
+                             limited="true" range="-1.396 1.396"/>
+                      <inertial pos="-0.0000688 0.01266 0.06952"
+                                mass="0.4660"
+                                fullinertia="0.000639 0.000497 0.000342 -1e-06 -1e-06 8.9e-05"/>
+                      <geom type="capsule" fromto="0 0 0  0 0 0.07" size="0.018" material="right_mat"/>
+                      <geom type="sphere" pos="0 0 0" size="0.014" material="joint_mat"/>
+
+                      <!-- Right end-effector -->
+                      <site name="R_ee" pos="0 0 0.07" size="0.015" rgba="1 0.2 0.2 1"/>
+
+                      <!-- Right gripper -->
+                      <body name="R_gripper" pos="0 0 0.07">
+                        <joint name="R_grip" type="slide" axis="0 1 0"
+                               limited="true" range="0 0.04" damping="10" armature="0.01"/>
+                        <geom type="box" size="0.01 0.005 0.03" pos="0 0.015 0" material="grip_mat"/>
+                        <inertial pos="0 0.015 0" mass="0.05"
+                                  fullinertia="5e-06 5e-06 5e-06 0 0 0"/>
+                      </body>
+
+                    </body>
+                  </body>
+                </body>
+              </body>
+            </body>
+          </body>
+        </body>
+      </body>
+    </body>
+
+    <!-- ============================================================ -->
+    <!-- Graspable object                                             -->
+    <!-- ============================================================ -->
+    <body name="object" pos="0 0.3 0.6">
+      <joint name="object_free" type="free"/>
+      <geom type="box" size="0.05 0.05 0.05" material="object_mat"
+            mass="0.5" friction="1.0 0.005 0.0001"/>
+      <inertial pos="0 0 0" mass="0.5"
+                fullinertia="8.33e-04 8.33e-04 8.33e-04 0 0 0"/>
+      <site name="object_site" pos="0 0 0" size="0.01" rgba="1 1 0 1"/>
+    </body>
+
+  </worldbody>
+
+  <!-- ============================================================ -->
+  <!-- Equality constraints (weld for grasping)                     -->
+  <!-- ============================================================ -->
+  <equality>
+    <weld name="grasp_left"  body1="L_link6" body2="object"
+          relpose="0 0 0.07 1 0 0 0" active="false"/>
+    <weld name="grasp_right" body1="R_link6" body2="object"
+          relpose="0 0 0.07 1 0 0 0" active="false"/>
+  </equality>
+
+  <!-- ============================================================ -->
+  <!-- Actuators (7+7 revolute + 1+1 prismatic = 16)                -->
+  <!-- ============================================================ -->
+  <actuator>
+    <!-- Left arm -->
+    <motor joint="L_j1" name="a_L_j1" gear="1"/>
+    <motor joint="L_j2" name="a_L_j2" gear="1"/>
+    <motor joint="L_j3" name="a_L_j3" gear="1"/>
+    <motor joint="L_j4" name="a_L_j4" gear="1"/>
+    <motor joint="L_j5" name="a_L_j5" gear="1"/>
+    <motor joint="L_j6" name="a_L_j6" gear="1"/>
+    <motor joint="L_j7" name="a_L_j7" gear="1"/>
+    <motor joint="L_grip" name="a_L_grip" gear="1" ctrlrange="-10 10"/>
+    <!-- Right arm -->
+    <motor joint="R_j1" name="a_R_j1" gear="1"/>
+    <motor joint="R_j2" name="a_R_j2" gear="1"/>
+    <motor joint="R_j3" name="a_R_j3" gear="1"/>
+    <motor joint="R_j4" name="a_R_j4" gear="1"/>
+    <motor joint="R_j5" name="a_R_j5" gear="1"/>
+    <motor joint="R_j6" name="a_R_j6" gear="1"/>
+    <motor joint="R_j7" name="a_R_j7" gear="1"/>
+    <motor joint="R_grip" name="a_R_grip" gear="1" ctrlrange="-10 10"/>
+  </actuator>
+
+  <!-- ============================================================ -->
+  <!-- Sensors                                                       -->
+  <!-- ============================================================ -->
+  <sensor>
+    <!-- Left arm joint positions -->
+    <jointpos joint="L_j1" name="L_j1_pos"/>
+    <jointpos joint="L_j2" name="L_j2_pos"/>
+    <jointpos joint="L_j3" name="L_j3_pos"/>
+    <jointpos joint="L_j4" name="L_j4_pos"/>
+    <jointpos joint="L_j5" name="L_j5_pos"/>
+    <jointpos joint="L_j6" name="L_j6_pos"/>
+    <jointpos joint="L_j7" name="L_j7_pos"/>
+    <jointpos joint="L_grip" name="L_grip_pos"/>
+    <!-- Right arm joint positions -->
+    <jointpos joint="R_j1" name="R_j1_pos"/>
+    <jointpos joint="R_j2" name="R_j2_pos"/>
+    <jointpos joint="R_j3" name="R_j3_pos"/>
+    <jointpos joint="R_j4" name="R_j4_pos"/>
+    <jointpos joint="R_j5" name="R_j5_pos"/>
+    <jointpos joint="R_j6" name="R_j6_pos"/>
+    <jointpos joint="R_j7" name="R_j7_pos"/>
+    <jointpos joint="R_grip" name="R_grip_pos"/>
+    <!-- Left arm joint velocities -->
+    <jointvel joint="L_j1" name="L_j1_vel"/>
+    <jointvel joint="L_j2" name="L_j2_vel"/>
+    <jointvel joint="L_j3" name="L_j3_vel"/>
+    <jointvel joint="L_j4" name="L_j4_vel"/>
+    <jointvel joint="L_j5" name="L_j5_vel"/>
+    <jointvel joint="L_j6" name="L_j6_vel"/>
+    <jointvel joint="L_j7" name="L_j7_vel"/>
+    <jointvel joint="L_grip" name="L_grip_vel"/>
+    <!-- Right arm joint velocities -->
+    <jointvel joint="R_j1" name="R_j1_vel"/>
+    <jointvel joint="R_j2" name="R_j2_vel"/>
+    <jointvel joint="R_j3" name="R_j3_vel"/>
+    <jointvel joint="R_j4" name="R_j4_vel"/>
+    <jointvel joint="R_j5" name="R_j5_vel"/>
+    <jointvel joint="R_j6" name="R_j6_vel"/>
+    <jointvel joint="R_j7" name="R_j7_vel"/>
+    <jointvel joint="R_grip" name="R_grip_vel"/>
+    <!-- End-effector positions -->
+    <framepos objtype="site" objname="L_ee" name="L_ee_pos"/>
+    <framepos objtype="site" objname="R_ee" name="R_ee_pos"/>
+    <!-- Object position -->
+    <framepos objtype="body" objname="object" name="object_pos"/>
+  </sensor>
+</mujoco>

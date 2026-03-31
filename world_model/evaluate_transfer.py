@@ -151,35 +151,35 @@ def multi_step_rmse_nn(
     n_rollouts = min(n // horizon, 100)
     errors = []
 
-    with torch.no_grad():
-        for r in range(n_rollouts):
-            start = r * horizon
-            q = torch.from_numpy(data["q"][start:start+1]).float().to(device)
-            dq = torch.from_numpy(data["dq"][start:start+1]).float().to(device)
+    for r in range(n_rollouts):
+        start = r * horizon
+        q = torch.from_numpy(data["q"][start:start+1]).float().to(device)
+        dq = torch.from_numpy(data["dq"][start:start+1]).float().to(device)
 
-            for t in range(horizon):
-                idx = start + t
-                if idx >= n:
-                    break
-                tau = torch.from_numpy(data["tau"][idx:idx+1]).float().to(device)
+        for t in range(horizon):
+            idx = start + t
+            if idx >= n:
+                break
+            tau = torch.from_numpy(data["tau"][idx:idx+1]).float().to(device)
 
-                if feature_fn is not None:
-                    q_np = q[0].cpu().numpy()
-                    feats = torch.from_numpy(
-                        feature_fn(q_np)[np.newaxis]
-                    ).float().to(device)
-                    x = torch.cat([q, dq, tau, feats], dim=-1)
-                else:
-                    x = torch.cat([q, dq, tau], dim=-1)
+            if feature_fn is not None:
+                q_np = q[0].detach().cpu().numpy()
+                feats = torch.from_numpy(
+                    feature_fn(q_np)[np.newaxis]
+                ).float().to(device)
+                x = torch.cat([q, dq, tau, feats], dim=-1)
+            else:
+                x = torch.cat([q, dq, tau], dim=-1)
 
-                pred = model(x)
-                q = pred[:, :7]
-                dq = pred[:, 7:]
+            x.requires_grad_(True)
+            pred = model(x)
+            q = pred[:, :7].detach()
+            dq = pred[:, 7:].detach()
 
-                true = np.concatenate([data["q_next"][idx], data["dq_next"][idx]])
-                pred_np = pred[0].cpu().numpy()
-                err = pred_np - true
-                errors.append(np.mean(err**2))
+            true = np.concatenate([data["q_next"][idx], data["dq_next"][idx]])
+            pred_np = pred[0].detach().cpu().numpy()
+            err = pred_np - true
+            errors.append(np.mean(err**2))
 
     return float(np.sqrt(np.mean(errors)))
 
@@ -204,9 +204,11 @@ def evaluate_model_nn(
         x = base
 
     x_t = torch.from_numpy(x).float().to(device)
-    with torch.no_grad():
-        pred = model(x_t).cpu().numpy()
-    return {"q_next": pred[:, :7], "dq_next": pred[:, 7:]}
+    # DeLaN needs autograd for gravity computation — no torch.no_grad()
+    x_t.requires_grad_(True)
+    pred = model(x_t)
+    pred_np = pred.detach().cpu().numpy()
+    return {"q_next": pred_np[:, :7], "dq_next": pred_np[:, 7:]}
 
 
 def finetune_and_evaluate(
