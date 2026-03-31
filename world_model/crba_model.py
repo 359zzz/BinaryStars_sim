@@ -56,7 +56,7 @@ class CRBAModel:
         dq_pred = np.zeros_like(dq)
 
         nv = self.model.nv
-        M_full = np.zeros(nv * nv)
+        M_full = np.zeros((nv, nv))
 
         for i in range(n):
             self.data.qpos[:N_JOINTS] = q[i]
@@ -65,7 +65,7 @@ class CRBAModel:
 
             # Full mass matrix
             mujoco.mj_fullM(self.model, M_full, self.data.qM)
-            M = M_full.reshape(nv, nv)[:N_JOINTS, :N_JOINTS]
+            M = M_full[:N_JOINTS, :N_JOINTS]
 
             # Bias forces: C(q,dq)*dq + g(q)
             bias = self.data.qfrc_bias[:N_JOINTS].copy()
