@@ -1,0 +1,25 @@
+# Scheme delta: Posterior analysis of quantum structure emergence
+# Run: python -m coupling_rl.quantum_analysis --policy results/beta/{variant}_seed0/policy.pt
+
+# Analysis parameters
+n_episodes: 100          # episodes to collect per policy
+n_joints: 7              # OpenArm 7-DOF
+
+# Which trained policies to analyze
+variants: [vanilla, geometric, coupling, quantum_c, quantum_decomp]
+seeds: [0, 1, 2]         # subset of seeds for analysis
+
+# Indirect coupling pairs (from Exp A': |J|<0.01, C>0.05)
+# These are the "smoking gun" -- classically invisible, quantum visible
+indirect_pairs:
+  - [0, 1]
+  - [0, 2]
+  - [1, 2]
+  - [1, 5]
+  - [2, 5]
+  - [2, 6]
+  - [5, 6]
+
+# Input/Output
+policy_dir: results/beta
+save_dir: results/delta

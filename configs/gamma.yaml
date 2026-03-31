@@ -1,0 +1,40 @@
+# Scheme gamma: World Model Transfer (5 models)
+# Run: python -m world_model.train --config configs/gamma.yaml
+
+# Data collection
+payloads: [0.0, 0.5, 1.0]
+n_rollouts: 200
+rollout_len: 100
+torque_scale: 20.0
+seed: 42
+
+# Training (source domain = 0 kg)
+train_payload: 0.0
+batch_size: 256
+lr: 0.001
+
+# Models to train: mlp, j_mlp, c_mlp, delan (CRBA is zero-shot)
+models: [mlp, j_mlp, c_mlp, delan]
+
+# MLP Ensemble (shared by mlp, j_mlp, c_mlp)
+ensemble_size: 5
+mlp_hidden: 256
+mlp_epochs: 100
+
+# DeLaN
+delan_hidden: 128
+delan_epochs: 200
+
+# Quantum prior parameters
+quantum_resolution: 0.01
+quantum_t_max: 3.0
+quantum_n_time_steps: 50
+
+# Evaluation
+n_test: 2000
+finetune_sizes: [0, 10, 50, 100, 500, 1000, 5000]
+finetune_epochs: 50
+finetune_lr: 0.0005
+
+# Output
+save_dir: results/gamma

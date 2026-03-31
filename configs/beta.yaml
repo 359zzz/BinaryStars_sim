@@ -1,0 +1,30 @@
+# Scheme beta: Coupling-Aware RL (5 variants)
+# Run: python -m coupling_rl.train_ppo --config configs/beta.yaml --variant quantum_c --seed 0
+
+# PPO hyperparameters
+clip_eps: 0.2
+lr_policy: 0.0003
+lr_value: 0.001
+gamma: 0.99
+gae_lambda: 0.95
+entropy_coef: 0.01
+ppo_epochs: 10
+mini_batch_size: 64
+n_steps: 2048
+n_envs: 8
+total_timesteps: 2000000
+
+# Coupling reward (active for coupling/quantum_c/quantum_decomp)
+coupling_lambda: 0.1
+
+# Quantum prior parameters
+quantum_resolution: 0.01  # q discretization (radians) for entanglement cache
+quantum_t_max: 3.0        # max evolution time
+quantum_n_time_steps: 50  # time discretization
+
+# Experiment: 5 variants x 10 seeds = 50 runs
+variants: [vanilla, geometric, coupling, quantum_c, quantum_decomp]
+seeds: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+
+# Output
+save_dir: results/beta
