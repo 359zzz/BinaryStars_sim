@@ -99,6 +99,87 @@ def heisenberg_hamiltonian(
     return H
 
 
+# ── Single-excitation sector (exact for |0...01⟩ initial state) ──────────────
+
+def single_excitation_hamiltonian(
+    J: np.ndarray, h: np.ndarray,
+) -> np.ndarray:
+    """Build n×n effective Hamiltonian in the single-excitation sector.
+
+    The Heisenberg Hamiltonian preserves total z-magnetization.
+    Starting from |0...01⟩ (HW=1), dynamics stays in the n-dimensional
+    subspace span{|e_0⟩, ..., |e_{n-1}⟩} where |e_i⟩ has qubit i excited.
+
+    This reduces 2^n to n-dimensional eigenvalue problem — exact, not
+    an approximation.
+
+    Matrix elements:
+        H_eff[i,j] = 2·J_ij           (i ≠ j, from XX+YY exchange)
+        H_eff[i,i] = -2·Σ_{j≠i} J_ij - 2·h_i + const
+    """
+    n = J.shape[0]
+    H_eff = np.zeros((n, n), dtype=float)
+
+    # Off-diagonal: exchange coupling
+    for i in range(n):
+        for j in range(i + 1, n):
+            H_eff[i, j] = 2.0 * J[i, j]
+            H_eff[j, i] = 2.0 * J[i, j]
+
+    # Diagonal: ZZ terms + local fields
+    # Constant shift: Σ_{a<b} J_ab + Σ_a h_a (same for all i)
+    const = 0.0
+    for a in range(n):
+        for b in range(a + 1, n):
+            const += J[a, b]
+        const += h[a]
+
+    for i in range(n):
+        off_sum = sum(J[i, j] for j in range(n) if j != i)
+        H_eff[i, i] = -2.0 * off_sum - 2.0 * h[i] + const
+
+    return H_eff
+
+
+class SingleExcitationEvolver:
+    """Efficient evolution in the n-dimensional single-excitation sector."""
+
+    def __init__(self, H_eff: np.ndarray) -> None:
+        self.eigenvalues, self.eigenvectors = np.linalg.eigh(H_eff)
+
+    def evolve(self, c0: np.ndarray, t: float) -> np.ndarray:
+        """Return c(t) in the n-dim sector."""
+        coeffs = self.eigenvectors.conj().T @ c0
+        phases = np.exp(-1j * self.eigenvalues * t)
+        return self.eigenvectors @ (phases * coeffs)
+
+    def evolve_series(
+        self, c0: np.ndarray, times: np.ndarray,
+    ) -> list[np.ndarray]:
+        coeffs = self.eigenvectors.conj().T @ c0
+        return [
+            self.eigenvectors @ (np.exp(-1j * self.eigenvalues * t) * coeffs)
+            for t in times
+        ]
+
+
+def concurrence_from_amplitudes(c: np.ndarray, i: int, j: int) -> float:
+    """Exact concurrence for single-excitation state: C_ij = 2|c_i||c_j|."""
+    return 2.0 * abs(c[i]) * abs(c[j])
+
+
+def entropy_from_amplitudes(c: np.ndarray, n_L: int) -> float:
+    """Bipartite entropy for L|R split of single-excitation state.
+
+    In HW=1 sector, the entanglement spectrum is binary: (p_L, p_R).
+    """
+    p_L = float(np.sum(np.abs(c[:n_L])**2))
+    p_R = float(np.sum(np.abs(c[n_L:])**2))
+    if p_L < 1e-15 or p_R < 1e-15:
+        return 0.0
+    return -p_L * np.log2(p_L) - p_R * np.log2(p_R)
+
+
 # ── Time evolution via eigendecomposition ─────────────────────────────────────
 
 class EigenEvolver:
@@ -184,6 +265,9 @@ def compute_entanglement_graph(
     Returns (n, n) matrix where C_ij = max_t concurrence(psi(t), i, j).
     Initial state: |0...01> (last qubit excited).
 
+    Uses the single-excitation sector (n-dimensional, exact) for efficiency.
+    This reduces the problem from 2^n to n dimensions.
+
     Parameters
     ----------
     M : (n, n) mass matrix at configuration q
@@ -197,31 +281,29 @@ def compute_entanglement_graph(
     M = np.asarray(M, dtype=float)
     n = M.shape[0]
 
-    # Coupling and local fields from mass matrix
     J = normalized_coupling_matrix(M)
     h = local_field_terms(M)
 
-    # Build Hamiltonian
-    H = heisenberg_hamiltonian(J, h)
+    # Single-excitation sector: n×n instead of 2^n × 2^n
+    H_eff = single_excitation_hamiltonian(J, h)
+    evolver = SingleExcitationEvolver(H_eff)
 
-    # Initial state |0...01> (last qubit excited)
-    dim = 2**n
-    psi0 = np.zeros(dim, dtype=complex)
-    psi0[1] = 1.0  # |0...01> = basis index 1 (binary: ...001)
+    # Initial state: last qubit excited
+    c0 = np.zeros(n, dtype=complex)
+    c0[n - 1] = 1.0
 
-    # Time evolution
-    evolver = EigenEvolver(H)
     times = np.linspace(0, t_max, n_time_steps)
-    states = evolver.evolve_series(psi0, times)
+    states = evolver.evolve_series(c0, times)
 
-    # Max concurrence over time for each pair
+    # Max concurrence over time: C_ij = 2|c_i||c_j|
     C_matrix = np.zeros((n, n))
-    for psi_t in states:
-        concurrences = all_pairwise_concurrences(psi_t, n)
-        for (i, j), c in concurrences.items():
-            if c > C_matrix[i, j]:
-                C_matrix[i, j] = c
-                C_matrix[j, i] = c
+    for c_t in states:
+        for i in range(n):
+            for j in range(i + 1, n):
+                c = concurrence_from_amplitudes(c_t, i, j)
+                if c > C_matrix[i, j]:
+                    C_matrix[i, j] = c
+                    C_matrix[j, i] = c
 
     return C_matrix
 
@@ -346,6 +428,9 @@ def compute_entanglement_spectrum_from_mass_matrix(
 ) -> dict:
     """Full pipeline: M(q) → Hamiltonian → evolve → entanglement spectrum.
 
+    Uses the single-excitation sector for efficiency (n×n instead of
+    2^n × 2^n).  Exact for the standard |0...01⟩ initial state.
+
     Parameters
     ----------
     M : (n, n) mass matrix where n = n_L + n_R
@@ -355,7 +440,8 @@ def compute_entanglement_spectrum_from_mass_matrix(
 
     Returns
     -------
-    dict with keys: 'spectrum', 'entropy', 'J_matrix', 'h_vector', 'psi'
+    dict with keys: 'spectrum', 'entropy', 'J_matrix', 'h_vector',
+                    'psi', 't_star', 'p_L', 'p_R'
     """
     n = M.shape[0]
     assert n == n_L + n_R, f"n={n} != n_L+n_R={n_L+n_R}"
@@ -363,38 +449,54 @@ def compute_entanglement_spectrum_from_mass_matrix(
     J = normalized_coupling_matrix(M)
     h = local_field_terms(M)
 
-    H = heisenberg_hamiltonian(J, h, max_qubits=16)
-
     # Characteristic time
     J_off = np.abs(J.copy())
     np.fill_diagonal(J_off, 0.0)
     max_J = np.max(J_off)
     if t_star is None:
         if max_J < 1e-15:
-            t_star = 1.0  # No coupling, S will be 0
+            t_star = 1.0
         else:
             t_star = np.pi / (4.0 * max_J)
 
-    # Initial state |0...01⟩ (last qubit excited)
+    # Single-excitation sector: n×n
+    H_eff = single_excitation_hamiltonian(J, h)
+    evolver = SingleExcitationEvolver(H_eff)
+
+    c0 = np.zeros(n, dtype=complex)
+    c0[n - 1] = 1.0
+    c_t = evolver.evolve(c0, t_star)
+
+    # Bipartite probabilities
+    p_L = float(np.sum(np.abs(c_t[:n_L])**2))
+    p_R = float(np.sum(np.abs(c_t[n_L:])**2))
+
+    # Entropy
+    S = entropy_from_amplitudes(c_t, n_L)
+
+    # Spectrum (binary in single-excitation sector)
+    dim_L = 2**n_L
+    spec = np.zeros(dim_L)
+    spec[0] = max(p_L, p_R)
+    spec[1] = min(p_L, p_R)
+
+    # Reconstruct full 2^n state for compatibility
     dim = 2**n
-    psi0 = np.zeros(dim, dtype=complex)
-    psi0[1] = 1.0
-
-    # Evolve
-    evolver = EigenEvolver(H)
-    psi = evolver.evolve(psi0, t_star)
-
-    # Entanglement spectrum
-    spec = entanglement_spectrum(psi, n_L, n_R)
-    S = bipartite_entanglement_entropy(psi, n_L, n_R)
+    psi_full = np.zeros(dim, dtype=complex)
+    for i in range(n):
+        # |e_i⟩: qubit i excited → bit (n-1-i) set → index 2^{n-1-i}
+        idx = 1 << (n - 1 - i)
+        psi_full[idx] = c_t[i]
 
     return {
         'spectrum': spec,
         'entropy': S,
         'J_matrix': J,
         'h_vector': h,
-        'psi': psi,
+        'psi': psi_full,
         't_star': t_star,
+        'p_L': p_L,
+        'p_R': p_R,
     }
 
 

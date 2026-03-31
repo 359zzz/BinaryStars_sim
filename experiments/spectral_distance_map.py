@@ -35,10 +35,9 @@ from physics.effective_mass import (
 from quantum_prior.entanglement_graph import (
     normalized_coupling_matrix,
     local_field_terms,
-    heisenberg_hamiltonian,
-    EigenEvolver,
-    entanglement_spectrum,
-    bipartite_entanglement_entropy,
+    single_excitation_hamiltonian,
+    SingleExcitationEvolver,
+    entropy_from_amplitudes,
     spectral_distance,
 )
 
@@ -102,7 +101,10 @@ def compute_dualarm_spectrum(
 ) -> dict:
     """Compute entanglement spectrum for symmetric dual-arm grasping.
 
-    Returns dict with 'spectrum', 'entropy', 'psi', 'J_coupling'.
+    Uses the single-excitation sector (n-dimensional) for efficiency.
+
+    Returns dict with 'spectrum', 'entropy', 'c_t' (sector amplitudes),
+    'J_coupling'.
     """
     if object_mass > 0:
         M_obj = make_object_spatial_inertia(object_mass, 'box', (0.1, 0.1, 0.1))
@@ -115,11 +117,10 @@ def compute_dualarm_spectrum(
     # Check diagonal positivity
     diag = np.diag(M_eff)
     if np.any(diag <= 0):
-        dim_L = 2 ** n_arm
         return {
-            'spectrum': np.array([1.0] + [0.0] * (dim_L - 1)),
+            'spectrum': np.array([1.0, 0.0]),
             'entropy': 0.0,
-            'psi': None,
+            'c_t': None,
             'J_coupling': None,
             'error': 'degenerate M_eff',
         }
@@ -127,7 +128,8 @@ def compute_dualarm_spectrum(
     J_coupling = normalized_coupling_matrix(M_eff)
     h = local_field_terms(M_eff)
 
-    H = heisenberg_hamiltonian(J_coupling, h, max_qubits=16)
+    # Single-excitation sector: n_total × n_total
+    H_eff = single_excitation_hamiltonian(J_coupling, h)
 
     # Characteristic time
     J_off = np.abs(J_coupling.copy())
@@ -135,42 +137,44 @@ def compute_dualarm_spectrum(
     max_J = np.max(J_off)
     t_star = np.pi / (4.0 * max_J) if max_J > 1e-15 else 1.0
 
-    # Initial state |0...01⟩
-    dim = 2 ** n_total
-    psi0 = np.zeros(dim, dtype=complex)
-    psi0[1] = 1.0
+    # Evolve in sector
+    evolver = SingleExcitationEvolver(H_eff)
+    c0 = np.zeros(n_total, dtype=complex)
+    c0[n_total - 1] = 1.0
+    c_t = evolver.evolve(c0, t_star)
 
-    evolver = EigenEvolver(H)
-    psi = evolver.evolve(psi0, t_star)
+    # Bipartite L|R spectrum (binary in single-excitation sector)
+    p_L = float(np.sum(np.abs(c_t[:n_arm])**2))
+    p_R = float(np.sum(np.abs(c_t[n_arm:])**2))
+    S = entropy_from_amplitudes(c_t, n_arm)
 
-    spec = entanglement_spectrum(psi, n_arm, n_arm)
-    S = bipartite_entanglement_entropy(psi, n_arm, n_arm)
+    spec = np.array([max(p_L, p_R), min(p_L, p_R)])
 
     return {
         'spectrum': spec,
         'entropy': S,
-        'psi': psi,
+        'c_t': c_t,
         'J_coupling': J_coupling,
         't_star': t_star,
     }
 
 
 def compute_functional_group_spectra(
-    psi: np.ndarray,
+    c_t: np.ndarray,
     n_arm: int,
     groups: dict[str, list[int]],
 ) -> dict[str, dict]:
     """Compute entanglement spectrum for each functional group bipartition.
 
-    For a dual-arm system with 2*n_arm qubits, partition into
-    functional groups and compute spectrum for each group's reduced
-    density matrix.
+    Uses single-excitation sector amplitudes c_t (n-dimensional vector).
+    In this sector, ANY bipartition A|B has binary spectrum:
+        p_A = Σ_{i∈A} |c_i|², p_B = 1 - p_A
 
     This enables dimension-matched comparison between robots with
     different DOF counts.
     """
     n_total = 2 * n_arm
-    psi = np.asarray(psi, dtype=complex).ravel()
+    c_t = np.asarray(c_t, dtype=complex).ravel()
 
     result = {}
 
@@ -187,31 +191,24 @@ def compute_functional_group_spectra(
         if n_sub == 0 or n_comp == 0:
             continue
 
-        # Reorder qubits: subsystem first, complement second
-        tensor = psi.reshape([2] * n_total)
-        perm = subsystem_indices + complement
-        tensor = tensor.transpose(perm)
+        # In single-excitation sector: p_A = Σ_{i∈A} |c_i|²
+        p_sub = float(np.sum(np.abs(c_t[subsystem_indices])**2))
+        p_comp = 1.0 - p_sub
 
-        # Reshape to (2^n_sub, 2^n_comp) and compute reduced density matrix
-        dim_sub = 2 ** n_sub
-        dim_comp = 2 ** n_comp
-        Psi = tensor.reshape(dim_sub, dim_comp)
-        rho_sub = Psi @ Psi.conj().T
+        # Binary spectrum
+        spec = [max(p_sub, p_comp), min(p_sub, p_comp)]
 
-        # Spectrum
-        eigenvalues = np.linalg.eigvalsh(rho_sub).real
-        eigenvalues = np.maximum(eigenvalues, 0.0)
-        eigenvalues = np.sort(eigenvalues)[::-1]
-
-        # Entropy
-        nonzero = eigenvalues[eigenvalues > 1e-15]
-        S = float(-np.sum(nonzero * np.log2(nonzero))) if len(nonzero) > 0 else 0.0
+        # Binary entropy
+        if p_sub < 1e-15 or p_comp < 1e-15:
+            S = 0.0
+        else:
+            S = -p_sub * np.log2(p_sub) - p_comp * np.log2(p_comp)
 
         result[group_name] = {
             'indices': subsystem_indices,
             'n_qubits': n_sub,
-            'spectrum': eigenvalues.tolist(),
-            'entropy': S,
+            'spectrum': spec,
+            'entropy': float(S),
         }
 
     return result
@@ -248,9 +245,9 @@ def run_spectral_distance_experiment(
 
         # Functional group spectra
         fg = {}
-        if spec_data['psi'] is not None:
+        if spec_data['c_t'] is not None:
             fg = compute_functional_group_spectra(
-                spec_data['psi'], 7, FUNCTIONAL_GROUPS['openarm'],
+                spec_data['c_t'], 7, FUNCTIONAL_GROUPS['openarm'],
             )
 
         dt = time.time() - t0
@@ -276,9 +273,9 @@ def run_spectral_distance_experiment(
         spec_data = compute_dualarm_spectrum(M_arm, J_arm, 6, object_mass)
 
         fg = {}
-        if spec_data['psi'] is not None:
+        if spec_data['c_t'] is not None:
             fg = compute_functional_group_spectra(
-                spec_data['psi'], 6, FUNCTIONAL_GROUPS['piper'],
+                spec_data['c_t'], 6, FUNCTIONAL_GROUPS['piper'],
             )
 
         dt = time.time() - t0
