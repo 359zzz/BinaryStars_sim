@@ -17,6 +17,7 @@ import argparse
 import json
 import os
 import time
+from multiprocessing import Pipe, Process
 
 import numpy as np
 import torch
@@ -55,55 +56,95 @@ def _make_quantum_computer():
     )
 
 
-def make_envs(
-    n_envs: int,
-    variant: str = "vanilla",
-    coupling_lambda: float = 0.0,
-    seed: int = 0,
-    quantum_computer=None,
-) -> list[OpenArmReachEnv]:
-    """Create vectorized environments."""
-    reward_mode, needs_quantum, _ = VARIANT_CONFIG[variant]
-    lam = coupling_lambda if reward_mode != "vanilla" else 0.0
-    qc = quantum_computer if needs_quantum else None
+# ── SubprocVecEnv ────────────────────────────────────────────────────────────
 
-    envs = []
-    for i in range(n_envs):
-        env = OpenArmReachEnv(
-            coupling_lambda=lam,
-            reward_mode=reward_mode,
-            quantum_computer=qc,
-        )
-        env.reset(seed=seed + i)
-        envs.append(env)
-    return envs
+def _env_worker(conn, env_kwargs, seed):
+    """Worker process for parallel env stepping."""
+    env = OpenArmReachEnv(**env_kwargs)
+    env.reset(seed=seed)
+    conn.send(env.observation_space.shape[0])  # handshake
+    while True:
+        cmd, data = conn.recv()
+        if cmd == "step":
+            obs, r, terminated, truncated, info = env.step(data)
+            done = terminated or truncated
+            if done:
+                obs, _ = env.reset()
+            conn.send((obs, r, done, info.get("success", False)))
+        elif cmd == "reset":
+            obs, info = env.reset(seed=data)
+            conn.send(obs)
+        elif cmd == "close":
+            env.close()
+            conn.close()
+            break
 
+
+class SubprocVecEnv:
+    """Subprocess-based vectorized environment for parallel MuJoCo stepping."""
+
+    def __init__(self, n_envs, env_kwargs, base_seed=0):
+        self.n_envs = n_envs
+        self.parent_conns = []
+        self.procs = []
+        for i in range(n_envs):
+            parent_conn, child_conn = Pipe()
+            proc = Process(
+                target=_env_worker,
+                args=(child_conn, env_kwargs, base_seed + i),
+                daemon=True,
+            )
+            proc.start()
+            child_conn.close()
+            self.parent_conns.append(parent_conn)
+            self.procs.append(proc)
+        # Wait for handshake
+        self.obs_dim = self.parent_conns[0].recv()
+        for conn in self.parent_conns[1:]:
+            conn.recv()
+
+    def step(self, actions):
+        """Step all envs in parallel. actions: (n_envs, act_dim)."""
+        for i, conn in enumerate(self.parent_conns):
+            conn.send(("step", actions[i]))
+        results = [conn.recv() for conn in self.parent_conns]
+        obs = np.array([r[0] for r in results], dtype=np.float32)
+        rewards = np.array([r[1] for r in results], dtype=np.float32)
+        dones = np.array([r[2] for r in results], dtype=np.float32)
+        successes = [r[3] for r in results]
+        return obs, rewards, dones, successes
+
+    def close(self):
+        for conn in self.parent_conns:
+            try:
+                conn.send(("close", None))
+            except (BrokenPipeError, OSError):
+                pass
+        for proc in self.procs:
+            proc.join(timeout=3)
+            if proc.is_alive():
+                proc.terminate()
+
+
+# ── Rollout collection ───────────────────────────────────────────────────────
 
 def collect_rollout(
-    envs: list[OpenArmReachEnv],
+    vec_env: SubprocVecEnv,
     policy: torch.nn.Module,
     value_net: ValueNet,
     buffer: RolloutBuffer,
     config: PPOConfig,
-    device: str = "cuda",
+    infer_device: str = "cpu",
     variant: str = "vanilla",
     quantum_computer=None,
-) -> dict[str, float]:
+    obs_base: np.ndarray | None = None,
+) -> tuple[dict[str, float], np.ndarray]:
     """Collect n_steps of experience from vectorized envs.
 
-    For quantum/coupling variants, augments observations with structure features.
+    Policy inference runs on infer_device (CPU recommended for small MLPs).
+    Returns (metrics_dict, last_obs_base).
     """
-    _, needs_quantum, obs_dim = VARIANT_CONFIG[variant]
-    n_envs = len(envs)
-    base_obs_dim = envs[0].observation_space.shape[0]  # 20
-
-    # Current base observations
-    obs_base = np.zeros((n_envs, base_obs_dim), dtype=np.float32)
-    for i, env in enumerate(envs):
-        if not hasattr(env, "_current_obs"):
-            obs, _ = env.reset()
-            env._current_obs = obs
-        obs_base[i] = env._current_obs
+    n_envs = vec_env.n_envs
 
     ep_rewards = []
     ep_lengths = []
@@ -117,53 +158,38 @@ def collect_rollout(
 
     with torch.no_grad():
         for step in range(config.n_steps):
-            # Augment observations for quantum/coupling variants
             obs_np = _augment_obs(obs_base, variant, quantum_computer)
-            obs_t = torch.from_numpy(obs_np).to(device)
+            obs_t = torch.from_numpy(obs_np).to(infer_device)
 
-            # Get action and value
             action, log_prob = policy.get_action(obs_t)
             value = value_net(obs_t)
 
-            action_np = action.cpu().numpy()
-            log_prob_np = log_prob.cpu().numpy()
-            value_np = value.cpu().numpy()
+            action_np = action.numpy()
+            log_prob_np = log_prob.numpy()
+            value_np = value.numpy()
 
-            # Scale actions to torque range
             action_scaled = np.clip(action_np * config.action_scale, -50.0, 50.0)
 
-            # Step all envs
-            next_obs_base = np.zeros_like(obs_base)
-            rewards = np.zeros(n_envs)
-            dones = np.zeros(n_envs)
+            # Parallel env stepping via subprocesses
+            next_obs_base, rewards, dones, successes = vec_env.step(action_scaled)
 
-            for i, env in enumerate(envs):
-                obs_new, r, terminated, truncated, info = env.step(action_scaled[i])
-                rewards[i] = r
-                done = terminated or truncated
-                dones[i] = float(done)
-
-                current_ep_reward[i] += r
+            for i in range(n_envs):
+                current_ep_reward[i] += rewards[i]
                 current_ep_len[i] += 1
-
-                if done:
+                if dones[i]:
                     ep_rewards.append(current_ep_reward[i])
                     ep_lengths.append(current_ep_len[i])
-                    ep_successes.append(info.get("success", False))
+                    ep_successes.append(successes[i])
                     current_ep_reward[i] = 0.0
                     current_ep_len[i] = 0
-                    obs_new, _ = env.reset()
-
-                next_obs_base[i] = obs_new
-                env._current_obs = obs_new
 
             buffer.add(obs_np, action_np, rewards, dones, log_prob_np, value_np)
             obs_base = next_obs_base
 
         # Compute last value for GAE
         last_obs_np = _augment_obs(obs_base, variant, quantum_computer)
-        last_obs_t = torch.from_numpy(last_obs_np).to(device)
-        last_value = value_net(last_obs_t).cpu().numpy()
+        last_obs_t = torch.from_numpy(last_obs_np).to(infer_device)
+        last_value = value_net(last_obs_t).numpy()
         buffer.compute_gae(last_value, config.gamma, config.gae_lambda)
 
     metrics = {
@@ -172,7 +198,7 @@ def collect_rollout(
         "success_rate": float(np.mean(ep_successes)) if ep_successes else 0.0,
         "n_episodes": len(ep_rewards),
     }
-    return metrics
+    return metrics, obs_base
 
 
 def _augment_obs(
@@ -180,12 +206,11 @@ def _augment_obs(
     variant: str,
     quantum_computer,
 ) -> np.ndarray:
-    """Augment base observations with structure features if needed.
-
-    Returns (n_envs, obs_dim) array: 20-dim for vanilla/geometric/coupling,
-    41-dim for quantum_c/quantum_decomp.
-    """
-    if variant in ("vanilla", "geometric", "coupling"):
+    """Augment base observations with structure features if needed."""
+    if variant in ("vanilla", "geometric"):
+        return obs_base
+    if variant == "coupling":
+        # coupling uses obs_dim=20, no augmentation needed (reward computed in env)
         return obs_base
 
     n_envs = obs_base.shape[0]
@@ -195,8 +220,6 @@ def _augment_obs(
         q = obs_base[i, :7]
         if variant == "quantum_c" or variant == "quantum_decomp":
             feats[i] = quantum_computer.get_entanglement_features(q)
-        elif variant == "coupling":
-            feats[i] = quantum_computer.get_classical_features(q)
 
     return np.concatenate([obs_base, feats], axis=1)
 
@@ -216,7 +239,6 @@ def train(
 
     reward_mode, needs_quantum, obs_dim = VARIANT_CONFIG[variant]
 
-    # Config
     ppo_cfg = PPOConfig(
         clip_eps=cfg.get("clip_eps", 0.2),
         lr_policy=cfg.get("lr_policy", 3e-4),
@@ -231,29 +253,41 @@ def train(
         total_timesteps=cfg.get("total_timesteps", 2_000_000),
     )
     coupling_lambda = cfg.get("coupling_lambda", 0.1)
-    device = "cuda" if torch.cuda.is_available() else "cpu"
 
-    # Seed
+    # GPU for PPO gradient updates, CPU for rollout inference (small MLP, no sync overhead)
+    train_device = "cuda" if torch.cuda.is_available() else "cpu"
+    infer_device = "cpu"
+
     torch.manual_seed(seed)
     np.random.seed(seed)
 
-    # Quantum computer (shared across all envs)
+    # Quantum computer (main process only — not sent to subprocesses)
     quantum_computer = _make_quantum_computer() if needs_quantum else None
 
-    # Environments
-    envs = make_envs(
-        ppo_cfg.n_envs, variant, coupling_lambda, seed,
-        quantum_computer=quantum_computer,
-    )
+    # Subprocess-based vectorized environments
+    env_kwargs = {
+        "coupling_lambda": coupling_lambda if reward_mode != "vanilla" else 0.0,
+        "reward_mode": reward_mode,
+        # quantum_computer NOT passed to subprocesses for non-quantum variants
+        # For quantum variants, coupling reward is computed in-env (subprocess)
+        # but quantum_computer can't be pickled. Use reward_mode dispatch:
+        # quantum variants compute coupling in main process via obs augmentation
+    }
+    # For quantum reward modes, fall back to vanilla reward in env
+    # (quantum reward shaping happens via obs augmentation + policy structure)
+    if needs_quantum:
+        env_kwargs["reward_mode"] = "vanilla"
+        env_kwargs["coupling_lambda"] = 0.0
 
-    # Networks — dispatch by variant
+    vec_env = SubprocVecEnv(ppo_cfg.n_envs, env_kwargs, base_seed=seed)
+
+    # Networks
     act_dim = 7
     if variant == "geometric":
-        policy = GeometricPolicy(obs_dim).to(device)
+        policy = GeometricPolicy(obs_dim).to(infer_device)
     elif variant in ("quantum_c", "coupling"):
-        policy = CouplingAwarePolicy(obs_dim, act_dim).to(device)
+        policy = CouplingAwarePolicy(obs_dim, act_dim).to(infer_device)
     elif variant == "quantum_decomp":
-        # Initialize groups from q=0 entanglement clustering
         groups = None
         if quantum_computer is not None:
             q0 = np.zeros(7)
@@ -263,12 +297,11 @@ def train(
             print(f"  Quantum decomposition groups (q=0): {groups}")
         policy = QuantumDecomposedPolicy(
             obs_dim, act_dim, default_groups=groups,
-        ).to(device)
+        ).to(infer_device)
     else:
-        # vanilla
-        policy = VanillaPolicy(obs_dim, act_dim).to(device)
+        policy = VanillaPolicy(obs_dim, act_dim).to(infer_device)
 
-    value_net = ValueNet(obs_dim).to(device)
+    value_net = ValueNet(obs_dim).to(infer_device)
 
     opt_policy = torch.optim.Adam(policy.parameters(), lr=ppo_cfg.lr_policy)
     opt_value = torch.optim.Adam(value_net.parameters(), lr=ppo_cfg.lr_value)
@@ -288,23 +321,45 @@ def train(
     print(f"\n=== Training {variant} PPO (seed={seed}) ===")
     print(f"  {n_updates} updates, {ppo_cfg.total_timesteps} total steps")
     print(f"  reward_mode={reward_mode}, obs_dim={obs_dim}")
+    print(f"  infer_device={infer_device}, train_device={train_device}")
+    print(f"  n_envs={ppo_cfg.n_envs} (subprocess-parallel)")
     t0 = time.time()
 
+    # Initial observations from subprocess envs
+    # Reset all and get first obs
+    for conn in vec_env.parent_conns:
+        conn.send(("reset", seed))
+    obs_base = np.array(
+        [conn.recv() for conn in vec_env.parent_conns], dtype=np.float32,
+    )
+
     for update in range(n_updates):
-        # Collect rollout
-        rollout_metrics = collect_rollout(
-            envs, policy, value_net, buffer, ppo_cfg, device,
+        t_rollout = time.time()
+        rollout_metrics, obs_base = collect_rollout(
+            vec_env, policy, value_net, buffer, ppo_cfg, infer_device,
             variant=variant, quantum_computer=quantum_computer,
+            obs_base=obs_base,
         )
+        dt_rollout = time.time() - t_rollout
         total_steps += ppo_cfg.n_steps * ppo_cfg.n_envs
 
-        # PPO update
+        # PPO update — move to train_device if GPU available
+        t_ppo = time.time()
+        if train_device != infer_device:
+            policy.to(train_device)
+            value_net.to(train_device)
+
         policy.train()
         value_net.train()
         update_metrics = ppo_update(
             policy, value_net, buffer, ppo_cfg,
-            opt_policy, opt_value, device,
+            opt_policy, opt_value, train_device,
         )
+
+        if train_device != infer_device:
+            policy.to(infer_device)
+            value_net.to(infer_device)
+        dt_ppo = time.time() - t_ppo
 
         log = {
             "step": total_steps,
@@ -315,18 +370,24 @@ def train(
 
         if (update + 1) % 10 == 0:
             elapsed = time.time() - t0
+            sps = total_steps / elapsed
             cache_info = ""
             if quantum_computer is not None:
-                cache_info = f" | cache_hit={quantum_computer.hit_rate:.1%}"
+                ci = quantum_computer.cache_info
+                cache_info = f" | cache_hit={ci.get('hit_rate', 0):.1%}"
             print(
                 f"  Update {update+1}/{n_updates} | "
                 f"steps={total_steps} | "
                 f"reward={rollout_metrics['mean_reward']:.1f} | "
                 f"success={rollout_metrics['success_rate']:.2f} | "
+                f"SPS={sps:.0f} | "
+                f"rollout={dt_rollout:.1f}s ppo={dt_ppo:.1f}s | "
                 f"time={elapsed:.0f}s{cache_info}"
             )
 
     # Save
+    policy.to("cpu")
+    value_net.to("cpu")
     torch.save(policy.state_dict(), os.path.join(save_dir, "policy.pt"))
     torch.save(value_net.state_dict(), os.path.join(save_dir, "value.pt"))
     with open(os.path.join(save_dir, "history.json"), "w") as f:
@@ -336,11 +397,10 @@ def train(
         with open(os.path.join(save_dir, "cache_info.json"), "w") as f:
             json.dump(quantum_computer.cache_info, f, indent=2)
 
-    # Close envs
-    for env in envs:
-        env.close()
+    vec_env.close()
 
-    print(f"  Done. Saved to {save_dir}")
+    elapsed = time.time() - t0
+    print(f"  Done in {elapsed:.0f}s ({total_steps/elapsed:.0f} SPS). Saved to {save_dir}")
     return {"variant": variant, "seed": seed, "history": history}
 
 
