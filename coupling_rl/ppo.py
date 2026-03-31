@@ -97,16 +97,17 @@ class RolloutBuffer:
         # Normalize advantages
         adv_flat = (adv_flat - adv_flat.mean()) / (adv_flat.std() + 1e-8)
 
+        # Pre-convert to tensors once (avoid per-batch from_numpy overhead)
+        obs_t = torch.from_numpy(obs_flat)
+        act_t = torch.from_numpy(act_flat)
+        logp_t = torch.from_numpy(logp_flat)
+        adv_t = torch.from_numpy(adv_flat)
+        ret_t = torch.from_numpy(ret_flat)
+
         for start in range(0, total, batch_size):
             end = start + batch_size
             idx = indices[start:end]
-            yield (
-                torch.from_numpy(obs_flat[idx]),
-                torch.from_numpy(act_flat[idx]),
-                torch.from_numpy(logp_flat[idx]),
-                torch.from_numpy(adv_flat[idx]),
-                torch.from_numpy(ret_flat[idx]),
-            )
+            yield obs_t[idx], act_t[idx], logp_t[idx], adv_t[idx], ret_t[idx]
 
     def reset(self) -> None:
         self.ptr = 0
@@ -132,12 +133,6 @@ def ppo_update(
 
     for _ in range(config.n_epochs):
         for obs, act, old_logp, adv, ret in buffer.get_batches(config.mini_batch_size):
-            obs = obs.to(device)
-            act = act.to(device)
-            old_logp = old_logp.to(device)
-            adv = adv.to(device)
-            ret = ret.to(device)
-
             # Policy loss
             dist = policy.get_dist(obs)
             new_logp = dist.log_prob(act).sum(-1)
