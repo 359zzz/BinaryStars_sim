@@ -5,10 +5,16 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-MAX_PARALLEL=${MAX_PARALLEL:-16}
+# CRITICAL: limit BLAS threads BEFORE Python imports numpy/torch.
+# Without this, each process grabs all CPU cores and deadlocks.
+export OMP_NUM_THREADS=2
+export MKL_NUM_THREADS=2
+export OPENBLAS_NUM_THREADS=2
+
+MAX_PARALLEL=${MAX_PARALLEL:-6}
 
 echo "=== Scheme beta: Coupling-Aware RL ==="
-echo "Running 5 variants x 5 seeds = 25 runs (max $MAX_PARALLEL parallel)"
+echo "Running 5 variants x 10 seeds = 50 runs (max $MAX_PARALLEL parallel)"
 
 run_experiment() {
     variant=$1
@@ -27,7 +33,7 @@ mkdir -p results/beta
 
 # Launch all jobs
 for variant in vanilla geometric coupling quantum_c quantum_decomp; do
-    for seed in $(seq 0 4); do
+    for seed in $(seq 0 9); do
         echo "$variant $seed"
     done
 done | xargs -P "$MAX_PARALLEL" -n 2 bash -c 'run_experiment "$@"' _

@@ -22,12 +22,6 @@ import numpy as np
 import torch
 import yaml
 
-# Small MLPs (256×256) are faster single-threaded; also prevents BLAS deadlock
-# when running multiple training processes in parallel.
-os.environ.setdefault("OMP_NUM_THREADS", "2")
-os.environ.setdefault("MKL_NUM_THREADS", "2")
-torch.set_num_threads(2)
-
 from coupling_rl.networks import (
     CouplingAwarePolicy,
     GeometricPolicy,

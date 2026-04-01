@@ -12,7 +12,7 @@ ppo_epochs: 4
 mini_batch_size: 2048
 n_steps: 2048
 n_envs: 8
-total_timesteps: 1000000
+total_timesteps: 2000000
 
 # Coupling reward (active for coupling/quantum_c/quantum_decomp)
 coupling_lambda: 0.1
@@ -22,9 +22,9 @@ quantum_resolution: 0.01  # q discretization (radians) for entanglement cache
 quantum_t_max: 3.0        # max evolution time
 quantum_n_time_steps: 50  # time discretization
 
-# Experiment: 5 variants x 5 seeds = 25 runs
+# Experiment: 5 variants x 10 seeds = 50 runs
 variants: [vanilla, geometric, coupling, quantum_c, quantum_decomp]
-seeds: [0, 1, 2, 3, 4]
+seeds: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
 
 # Output
 save_dir: results/beta
