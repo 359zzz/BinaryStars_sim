@@ -1,21 +1,20 @@
 #!/bin/bash
 # Scheme beta: Coupling-Aware RL (5 variants)
 # Usage: cd E:/BinaryStars_sim && bash scripts/run_beta.sh
-# Runs 50 experiments (5 variants x 10 seeds), 6 in parallel
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-MAX_PARALLEL=${MAX_PARALLEL:-6}
+MAX_PARALLEL=${MAX_PARALLEL:-16}
 
 echo "=== Scheme beta: Coupling-Aware RL ==="
-echo "Running 5 variants x 10 seeds = 50 runs (max $MAX_PARALLEL parallel)"
+echo "Running 5 variants x 5 seeds = 25 runs (max $MAX_PARALLEL parallel)"
 
 run_experiment() {
     variant=$1
     seed=$2
     echo "  Starting $variant seed=$seed"
-    python -m coupling_rl.train_ppo \
+    python -u -m coupling_rl.train_ppo \
         --config configs/beta.yaml \
         --variant "$variant" \
         --seed "$seed" \
@@ -28,7 +27,7 @@ mkdir -p results/beta
 
 # Launch all jobs
 for variant in vanilla geometric coupling quantum_c quantum_decomp; do
-    for seed in $(seq 0 9); do
+    for seed in $(seq 0 4); do
         echo "$variant $seed"
     done
 done | xargs -P "$MAX_PARALLEL" -n 2 bash -c 'run_experiment "$@"' _
