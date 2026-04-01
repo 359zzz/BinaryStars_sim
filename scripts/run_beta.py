@@ -42,9 +42,22 @@ def run_beta(
     os.chdir(project_root)
     os.makedirs("results/beta", exist_ok=True)
 
-    jobs = [(v, s) for v in variants for s in seeds]
+    all_jobs = [(v, s) for v in variants for s in seeds]
+
+    # Auto-resume: skip runs that already have history.json
+    jobs = []
+    skipped = 0
+    for v, s in all_jobs:
+        history_path = f"results/beta/{v}_seed{s}/history.json"
+        if os.path.exists(history_path) and os.path.getsize(history_path) > 100:
+            skipped += 1
+        else:
+            jobs.append((v, s))
+
     total = len(jobs)
-    print(f"=== Scheme beta: {len(variants)} variants x {len(seeds)} seeds = {total} runs ===")
+    print(f"=== Scheme beta: {len(variants)} variants x {len(seeds)} seeds ===")
+    if skipped:
+        print(f"  Resuming: {skipped} already done, {total} remaining")
     print(f"  max_parallel={max_parallel}, BLAS threads=2")
 
     running: dict[tuple[str, int], subprocess.Popen] = {}
@@ -114,6 +127,9 @@ def run_beta(
 
     elapsed = time.time() - t0
     print(f"\n=== Done: {completed} OK, {failed} failed, {elapsed/60:.0f} min total ===")
+
+    if total == 0:
+        print("All runs already complete!")
 
     if failed == 0:
         print("Generating figures...")
