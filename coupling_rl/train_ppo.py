@@ -14,10 +14,10 @@ Usage:
 from __future__ import annotations
 
 # MUST be before numpy/torch/scipy imports — prevents BLAS thread deadlock
-import os as _os
-_os.environ["OMP_NUM_THREADS"] = "2"
-_os.environ["MKL_NUM_THREADS"] = "2"
-_os.environ["OPENBLAS_NUM_THREADS"] = "2"
+import os
+os.environ["OMP_NUM_THREADS"] = "2"
+os.environ["MKL_NUM_THREADS"] = "2"
+os.environ["OPENBLAS_NUM_THREADS"] = "2"
 
 import argparse
 import json
