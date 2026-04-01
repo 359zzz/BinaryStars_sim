@@ -56,7 +56,7 @@ def _make_quantum_computer():
 
     return CachedEntanglementComputer(
         mass_matrix_fn=compute_openarm_mass_matrix,
-        resolution=0.01,
+        resolution=0.1,  # 0.1 rad ≈ 5.7°, cache hit rate >95%
     )
 
 
@@ -298,7 +298,7 @@ def train(
         }
         history.append(log)
 
-        if (update + 1) % 10 == 0:
+        if (update + 1) % 10 == 0 or update < 3:
             elapsed = time.time() - t0
             sps = total_steps / elapsed
             cache_info = ""
