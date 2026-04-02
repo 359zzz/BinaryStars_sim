@@ -36,6 +36,15 @@ from quantum_prior.entanglement_graph import (
 )
 
 
+def _recover_decomp_groups() -> list[list[int]]:
+    """Recompute QuantumDecomposedPolicy groups (same as training at q=0)."""
+    from quantum_prior.entanglement_graph import compute_entanglement_graph
+    from quantum_prior.clustering import decompose_joints
+    M = compute_openarm_mass_matrix(np.zeros(N_JOINTS))
+    C = compute_entanglement_graph(M)
+    return decompose_joints(C)
+
+
 def compute_mutual_information_proxy(
     actions: np.ndarray,
 ) -> np.ndarray:
@@ -64,19 +73,27 @@ def quantum_vs_classical_correlation(
 
     Returns dict with correlations, per-pair data, and significance.
     """
-    # Load policy — match architecture used during training
-    if variant in ("coupling", "quantum_c"):
+    # Load policy — must match architecture used during training (see train_ppo.py)
+    # VARIANT_CONFIG: vanilla/geometric/coupling -> obs_dim=20, quantum_c/quantum_decomp -> 41
+    if variant == "quantum_c":
         policy = CouplingAwarePolicy(obs_dim=41)
+    elif variant == "coupling":
+        policy = CouplingAwarePolicy(obs_dim=20)
     elif variant == "quantum_decomp":
-        policy = QuantumDecomposedPolicy(obs_dim=41)
+        # Recompute groups at q=0 (deterministic, same as training)
+        groups = _recover_decomp_groups()
+        policy = QuantumDecomposedPolicy(obs_dim=41, default_groups=groups)
     elif variant == "geometric":
         policy = GeometricPolicy(obs_dim=20)
     else:
         policy = VanillaPolicy(obs_dim=20)
-    policy.load_state_dict(torch.load(policy_path, map_location=device))
+    if variant != "quantum_decomp":
+        state = torch.load(policy_path, map_location=device, weights_only=False)
+    policy.load_state_dict(state)
     policy.eval()
 
     env = OpenArmReachEnv()
+    needs_augment = variant in ("quantum_c", "quantum_decomp")
 
     # Collect trajectories
     all_j_upper = []  # per-step upper-triangle |J_ij|
@@ -86,15 +103,26 @@ def quantum_vs_classical_correlation(
     for ep in range(n_episodes):
         obs, _ = env.reset(seed=ep * 17)
         for _ in range(200):
-            obs_t = torch.from_numpy(obs).float().unsqueeze(0)
-            with torch.no_grad():
-                action, _ = policy.get_action(obs_t)
-            action_np = action[0].numpy()
             q = obs[:7]
 
             J = compute_openarm_coupling(q)
             M = compute_openarm_mass_matrix(q)
             C = compute_entanglement_graph(M)
+
+            # Augment obs for quantum variants (match _augment_obs in train_ppo)
+            if needs_augment:
+                feats = []
+                for ii in range(N_JOINTS):
+                    for jj in range(ii + 1, N_JOINTS):
+                        feats.append(C[ii, jj])
+                obs_policy = np.concatenate([obs, np.array(feats, dtype=np.float32)])
+            else:
+                obs_policy = obs
+
+            obs_t = torch.from_numpy(obs_policy).float().unsqueeze(0)
+            with torch.no_grad():
+                action, _ = policy.get_action(obs_t)
+            action_np = action[0].numpy()
 
             # Extract upper triangle
             j_upper = []
