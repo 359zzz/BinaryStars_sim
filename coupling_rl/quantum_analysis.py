@@ -87,8 +87,7 @@ def quantum_vs_classical_correlation(
         policy = GeometricPolicy(obs_dim=20)
     else:
         policy = VanillaPolicy(obs_dim=20)
-    if variant != "quantum_decomp":
-        state = torch.load(policy_path, map_location=device, weights_only=False)
+    state = torch.load(policy_path, map_location=device, weights_only=False)
     policy.load_state_dict(state)
     policy.eval()
 
