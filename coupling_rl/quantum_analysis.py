@@ -23,6 +23,7 @@ from coupling_rl.networks import (
     CouplingAwarePolicy,
     VanillaPolicy,
     GeometricPolicy,
+    QuantumDecomposedPolicy,
 )
 from envs.openarm_reach import OpenArmReachEnv
 from physics.openarm_params import (
@@ -63,14 +64,15 @@ def quantum_vs_classical_correlation(
 
     Returns dict with correlations, per-pair data, and significance.
     """
-    # Load policy
-    obs_dim = 41 if variant in ("quantum_c", "quantum_decomp") else 20
-    if variant in ("quantum_c", "quantum_decomp"):
-        policy = CouplingAwarePolicy(obs_dim)
+    # Load policy — match architecture used during training
+    if variant in ("coupling", "quantum_c"):
+        policy = CouplingAwarePolicy(obs_dim=41)
+    elif variant == "quantum_decomp":
+        policy = QuantumDecomposedPolicy(obs_dim=41)
     elif variant == "geometric":
-        policy = GeometricPolicy(obs_dim)
+        policy = GeometricPolicy(obs_dim=20)
     else:
-        policy = VanillaPolicy(obs_dim)
+        policy = VanillaPolicy(obs_dim=20)
     policy.load_state_dict(torch.load(policy_path, map_location=device))
     policy.eval()
 

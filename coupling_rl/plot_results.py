@@ -184,13 +184,18 @@ def plot_coupling_correlation(
         compute_entanglement_graph,
     )
 
-    # Load policy
-    obs_dim = 41 if variant in ("quantum_c", "quantum_decomp", "coupling") else 20
-    if obs_dim == 41:
-        policy = CouplingAwarePolicy(obs_dim)
+    # Load policy — match architecture used during training
+    from coupling_rl.networks import QuantumDecomposedPolicy
+    if variant in ("coupling", "quantum_c"):
+        policy = CouplingAwarePolicy(obs_dim=41)
+    elif variant == "quantum_decomp":
+        policy = QuantumDecomposedPolicy(obs_dim=41)
+    elif variant == "geometric":
+        from coupling_rl.networks import GeometricPolicy
+        policy = GeometricPolicy(obs_dim=20)
     else:
-        policy = VanillaPolicy(obs_dim)
-    policy.load_state_dict(torch.load(policy_path, map_location="cpu"))
+        policy = VanillaPolicy(obs_dim=20)
+    policy.load_state_dict(torch.load(policy_path, map_location="cpu", weights_only=True))
     policy.eval()
 
     env = OpenArmReachEnv()
