@@ -337,6 +337,8 @@ def plot_learning_curves(histories: dict[str, list[list[dict]]], fig_dir: Path):
 def main():
     parser = argparse.ArgumentParser(description="Analyze beta + delta results")
     parser.add_argument("--export-dir", default="beta_export/beta_export")
+    parser.add_argument("--raw-dir", default=None,
+                        help="Direct path to training results (e.g. results/beta)")
     parser.add_argument("--output", default="results/beta_analysis.json")
     parser.add_argument("--fig-dir", default="figures")
     parser.add_argument("--latex", action="store_true")
@@ -346,9 +348,15 @@ def main():
     fig_dir = Path(args.fig_dir)
     fig_dir.mkdir(parents=True, exist_ok=True)
 
-    # Load data
-    delta = load_delta_results(export / "delta")
-    histories = load_learning_curves(export / "raw")
+    # Load data — raw-dir takes precedence over export-dir/raw
+    raw_dir = Path(args.raw_dir) if args.raw_dir else export / "raw"
+    delta_dir = export / "delta"
+
+    delta = load_delta_results(delta_dir) if delta_dir.exists() else {}
+    if raw_dir.exists():
+        histories = load_learning_curves(raw_dir)
+    else:
+        histories = {}
 
     print(f"Loaded: {sum(len(v) for v in delta.values())} delta results, "
           f"{sum(len(v) for v in histories.values())} training histories")
