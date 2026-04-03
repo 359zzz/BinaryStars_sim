@@ -1,0 +1,36 @@
+# Toy 2x2-DOF dual-arm modal action validation
+# Run: python -m scripts.run_toy_validation
+
+# Environment
+n_per_arm: 2
+object_mass: 0.5
+arm_link_mass: [1.0, 0.5]
+arm_link_length: [0.3, 0.25]
+damping: 0.5
+dt: 0.02
+max_steps: 200
+trajectory_freq: [0.5, 0.8]
+trajectory_amp: [0.3, 0.6]
+
+# PPO (GPU-optimized: large batch)
+n_envs: 512
+n_steps: 256
+total_timesteps: 500000
+clip_eps: 0.2
+lr_policy: 0.0003
+lr_value: 0.001
+gamma: 0.99
+gae_lambda: 0.95
+entropy_coef: 0.01
+ppo_epochs: 4
+mini_batch_size: 4096
+hidden_dim: 128
+action_scale: 10.0
+
+# Experiment
+variants: [vanilla, coupling_features, modal_action]
+seeds: [0, 1, 2, 3, 4]
+save_dir: results/toy
+
+# Object mass sweep (optional, run with --mass-sweep)
+mass_sweep: [0.0, 0.1, 0.3, 0.5, 1.0]
