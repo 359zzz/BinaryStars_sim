@@ -6,6 +6,7 @@ Usage:
     python -m scripts.run_toy_validation --variant modal_action --seed 0  # single run
     python -m scripts.run_toy_validation --analyze-only                # analyze existing results
     python -m scripts.run_toy_validation --mass-sweep                  # sweep object masses
+    python -m scripts.run_toy_validation --capacity-sweep              # sweep hidden dims [32, 64, 128]
 """
 
 from __future__ import annotations
@@ -39,6 +40,7 @@ def run_experiment(
     config_path: str | None = None,
     device: str | None = None,
     mass_sweep: bool = False,
+    capacity_sweep: bool = False,
 ) -> None:
     from coupling_rl.train_toy import train_toy
 
@@ -53,37 +55,52 @@ def run_experiment(
     else:
         masses = [cfg.get("object_mass", 0.5)]
 
-    total_runs = len(masses) * len(variants) * len(seeds)
+    if capacity_sweep:
+        hidden_dims = [32, 64, 128]
+    else:
+        hidden_dims = [cfg.get("hidden_dim", 128)]
+
+    total_runs = len(masses) * len(hidden_dims) * len(variants) * len(seeds)
     run_idx = 0
 
     for mass in masses:
-        mass_cfg = dict(cfg)
-        mass_cfg["object_mass"] = mass
-        mass_dir = save_dir if len(masses) == 1 else os.path.join(save_dir, f"mass_{mass:.1f}")
-        mass_cfg["save_dir"] = mass_dir
+        for hidden in hidden_dims:
+            sweep_cfg = dict(cfg)
+            sweep_cfg["object_mass"] = mass
+            sweep_cfg["hidden_dim"] = hidden
 
-        for variant in variants:
-            for seed in seeds:
-                run_idx += 1
-                out_dir = os.path.join(mass_dir, f"{variant}_seed{seed}")
-                hist_path = os.path.join(out_dir, "history.json")
+            # Build save path based on sweep dimensions
+            if len(masses) > 1 and len(hidden_dims) > 1:
+                sub_dir = os.path.join(save_dir, f"mass_{mass:.1f}", f"h{hidden}")
+            elif len(masses) > 1:
+                sub_dir = os.path.join(save_dir, f"mass_{mass:.1f}")
+            elif len(hidden_dims) > 1:
+                sub_dir = os.path.join(save_dir, f"h{hidden}")
+            else:
+                sub_dir = save_dir
 
-                if os.path.exists(hist_path):
-                    print(f"[{run_idx}/{total_runs}] SKIP {variant}/seed{seed} (exists)")
-                    continue
+            for variant in variants:
+                for seed in seeds:
+                    run_idx += 1
+                    out_dir = os.path.join(sub_dir, f"{variant}_seed{seed}")
+                    hist_path = os.path.join(out_dir, "history.json")
 
-                print(f"\n[{run_idx}/{total_runs}] {variant}/seed{seed}"
-                      f" (mass={mass:.1f}, device={device})")
-                t0 = time.time()
-                train_toy(
-                    variant=variant,
-                    seed=seed,
-                    config=mass_cfg,
-                    device=device,
-                    save_dir=mass_dir,
-                )
-                elapsed = time.time() - t0
-                print(f"  Completed in {elapsed:.0f}s")
+                    if os.path.exists(hist_path):
+                        print(f"[{run_idx}/{total_runs}] SKIP {variant}/seed{seed} (exists)")
+                        continue
+
+                    print(f"\n[{run_idx}/{total_runs}] {variant}/seed{seed}"
+                          f" (mass={mass:.1f}, h={hidden}, device={device})")
+                    t0 = time.time()
+                    train_toy(
+                        variant=variant,
+                        seed=seed,
+                        config=sweep_cfg,
+                        device=device,
+                        save_dir=sub_dir,
+                    )
+                    elapsed = time.time() - t0
+                    print(f"  Completed in {elapsed:.0f}s")
 
     print(f"\nAll {total_runs} runs done. Results in {save_dir}/")
 
@@ -103,6 +120,7 @@ def main() -> None:
     parser.add_argument("--device", type=str, default=None)
     parser.add_argument("--analyze-only", action="store_true")
     parser.add_argument("--mass-sweep", action="store_true")
+    parser.add_argument("--capacity-sweep", action="store_true")
     args = parser.parse_args()
 
     if args.analyze_only:
@@ -118,6 +136,7 @@ def main() -> None:
         config_path=args.config,
         device=args.device,
         mass_sweep=args.mass_sweep,
+        capacity_sweep=args.capacity_sweep,
     )
 
     # Auto-analyze after training

@@ -22,7 +22,7 @@ import torch.nn as nn
 import yaml
 
 from coupling_rl.networks import VanillaPolicy, ValueNet
-from coupling_rl.networks_modal import CouplingFeaturesPolicy, ModalActionPolicy
+from coupling_rl.networks_modal import CouplingFeaturesPolicy
 from coupling_rl.ppo import PPOConfig, ppo_update
 
 ALL_VARIANTS = ["vanilla", "coupling_features", "modal_action"]
@@ -126,7 +126,8 @@ def collect_rollout(
 ) -> dict[str, float]:
     """Collect one rollout entirely on GPU.
 
-    For modal_action variant, maps 6-dim raw action to 4-dim torque.
+    For modal_action variant, rotates 4-dim action via M(q) eigenvectors
+    so the policy works in inertia-decoupled modal coordinates.
     For coupling_features variant, augments obs with J_cross_flat.
     """
     buffer.reset()
@@ -143,27 +144,29 @@ def collect_rollout(
     step_rmses = []
 
     for step in range(buffer.n_steps):
-        # Build policy input
+        # Build policy input — variant-specific obs transformation
         if variant == "coupling_features" and coupling_info is not None:
             policy_obs = torch.cat([obs, coupling_info["J_cross_flat"]], dim=-1)
+        elif variant == "modal_action" and coupling_info is not None:
+            # Rotate obs to modal coords: M(q=0) eigenbasis → decoupled dynamics
+            V = coupling_info["modal_basis"]  # (4, 4)
+            policy_obs = torch.cat([
+                obs[:, :4] @ V,      # q in modal coords
+                obs[:, 4:8] @ V,     # dq in modal coords
+                obs[:, 8:12] @ V,    # q_target in modal coords
+                obs[:, 12:13],       # phase (scalar, unchanged)
+            ], dim=-1)
         else:
             policy_obs = obs
 
-        # Get action
+        # Get action (in the variant's coordinate system)
         raw_action, log_prob = policy.get_action(policy_obs)
         value = value_net(policy_obs)
 
-        # Map action to env torques
+        # Map action to joint-space torques for the env
         if variant == "modal_action" and coupling_info is not None:
-            env_action = ModalActionPolicy.map_to_torques(
-                raw_action,
-                coupling_info["U"],
-                coupling_info["sigma"],
-                coupling_info["Vh"],
-                action_scale,
-            )
-            # env.step expects [-1,1] range, undo scale for env clamping
-            env_action = env_action / action_scale
+            # V is orthogonal → ||V@a|| = ||a|| → no clipping issues
+            env_action = raw_action @ V.T  # modal → joint
         else:
             env_action = raw_action
 
@@ -190,9 +193,14 @@ def collect_rollout(
 
         obs = obs_next
 
-    # Last value for GAE
+    # Last value for GAE (must match policy_obs construction above)
     if variant == "coupling_features" and coupling_info is not None:
         last_obs = torch.cat([obs, coupling_info["J_cross_flat"]], dim=-1)
+    elif variant == "modal_action" and coupling_info is not None:
+        V = coupling_info["modal_basis"]
+        last_obs = torch.cat([
+            obs[:, :4] @ V, obs[:, 4:8] @ V, obs[:, 8:12] @ V, obs[:, 12:13],
+        ], dim=-1)
     else:
         last_obs = obs
     last_value = value_net(last_obs)
@@ -259,8 +267,10 @@ def train_toy(
         obs_dim, act_dim = 17, 4
         policy = CouplingFeaturesPolicy(obs_dim, act_dim, hidden).to(device)
     elif variant == "modal_action":
-        obs_dim, act_dim = 13, ModalActionPolicy.RAW_DIM  # 6
-        policy = ModalActionPolicy(13, env.n_per_arm, hidden).to(device)
+        # Same 4-dim policy as vanilla; the eigendecomposition rotation
+        # is applied in collect_rollout, not in the network.
+        obs_dim, act_dim = 13, 4
+        policy = VanillaPolicy(obs_dim, act_dim, hidden).to(device)
     else:
         raise ValueError(f"Unknown variant: {variant}")
 
@@ -292,6 +302,14 @@ def train_toy(
     steps_per_update = n_steps * ppo_cfg.n_envs
     n_updates = total_timesteps // steps_per_update
 
+    # Precompute fixed modal basis from M at q=0 (used by modal_action variant)
+    modal_basis = None
+    if variant == "modal_action":
+        q_nom = torch.zeros(1, env.n_dof, device=device)
+        M_nom = env._compute_mass_matrix_batch(q_nom)
+        _, V = torch.linalg.eigh(M_nom[0])  # (4, 4), columns = eigenvectors
+        modal_basis = V  # fixed rotation: modal coords ↔ joint coords
+
     # Training loop
     history = []
     total_steps = 0
@@ -301,8 +319,10 @@ def train_toy(
     pbar = tqdm(total=total_timesteps, desc=f"{variant}/s{seed}", unit="step")
 
     for update in range(n_updates):
-        # Update coupling info once per rollout (not per step)
+        # Coupling info: J_cross for features, modal_basis for action mapping
         coupling_info = env.get_coupling_info()
+        if modal_basis is not None:
+            coupling_info["modal_basis"] = modal_basis
 
         rollout_metrics = collect_rollout(
             env, policy, value_net, buffer, variant, action_scale, coupling_info,

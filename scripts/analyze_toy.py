@@ -265,6 +265,65 @@ def plot_mass_sweep(save_dir: str, fig_dir: str = FIG_DIR) -> None:
     plt.close(fig)
 
 
+def plot_capacity_sweep(save_dir: str, fig_dir: str = FIG_DIR) -> None:
+    """Plot final RMSE vs hidden_dim for vanilla vs modal_action.
+
+    Expects results in save_dir/h32/, save_dir/h64/, save_dir/h128/.
+    """
+    base = Path(save_dir)
+    hidden_dirs = sorted(
+        [d for d in base.iterdir() if d.is_dir() and d.name.startswith("h")],
+        key=lambda d: int(d.name[1:]),
+    )
+    if not hidden_dirs:
+        return
+
+    os.makedirs(fig_dir, exist_ok=True)
+    hidden_vals = []
+    results: dict[str, tuple[list, list]] = {}  # variant -> (means, stds)
+
+    for hd in hidden_dirs:
+        h = int(hd.name[1:])
+        hidden_vals.append(h)
+        histories = load_histories(str(hd))
+        data = _extract_metric(histories, "mean_rmse")
+
+        for variant in ["vanilla", "coupling_features", "modal_action"]:
+            if variant not in data:
+                continue
+            _, arr = data[variant]
+            n_tail = max(arr.shape[1] // 10, 1)
+            per_seed = arr[:, -n_tail:].mean(axis=1)
+            if variant not in results:
+                results[variant] = ([], [])
+            results[variant][0].append(per_seed.mean())
+            results[variant][1].append(per_seed.std())
+
+    if not hidden_vals or not results:
+        return
+
+    fig, ax = plt.subplots(figsize=(7, 5))
+    for variant in ["vanilla", "modal_action"]:
+        if variant not in results:
+            continue
+        style = VARIANT_STYLES.get(variant, {"color": "gray", "label": variant})
+        means, stds = results[variant]
+        ax.errorbar(hidden_vals, means, yerr=stds, marker="o", capsize=5,
+                     color=style["color"], label=style["label"], linewidth=2, markersize=8)
+
+    ax.set_xlabel("Hidden Dimension", fontsize=12)
+    ax.set_ylabel("Final Tracking RMSE (rad)", fontsize=12)
+    ax.set_title("Modal Action Advantage vs Network Capacity", fontsize=14)
+    ax.set_xticks(hidden_vals)
+    ax.legend(fontsize=10)
+    ax.grid(True, alpha=0.3)
+    plt.tight_layout()
+    path = os.path.join(fig_dir, "toy_capacity_sweep.pdf")
+    fig.savefig(path, dpi=150, bbox_inches="tight")
+    print(f"Saved {path}")
+    plt.close(fig)
+
+
 # ---------------------------------------------------------------
 # Summary table
 # ---------------------------------------------------------------
@@ -324,15 +383,17 @@ def print_summary(histories: dict) -> None:
 
 def main(save_dir: str = "results/toy", fig_dir: str = FIG_DIR) -> None:
     histories = load_histories(save_dir)
-    if not histories:
-        print(f"No results found in {save_dir}/")
-        return
+    if histories:
+        print_summary(histories)
+        plot_learning_curves(histories, fig_dir)
+        plot_sample_efficiency(histories, fig_dir)
+        plot_final_comparison(histories, fig_dir)
+    else:
+        print(f"No base results in {save_dir}/ (checking sweep dirs...)")
 
-    print_summary(histories)
-    plot_learning_curves(histories, fig_dir)
-    plot_sample_efficiency(histories, fig_dir)
-    plot_final_comparison(histories, fig_dir)
+    # Sweep plots look for subdirectories; run even without base results
     plot_mass_sweep(save_dir, fig_dir)
+    plot_capacity_sweep(save_dir, fig_dir)
 
 
 if __name__ == "__main__":
