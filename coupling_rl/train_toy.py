@@ -139,6 +139,8 @@ def collect_rollout(
     running_reward = torch.zeros(env.n_envs, device=env.device)
     running_rmse = torch.zeros(env.n_envs, device=env.device)
     running_steps = torch.zeros(env.n_envs, device=env.device)
+    step_rewards = []
+    step_rmses = []
 
     for step in range(buffer.n_steps):
         # Build policy input
@@ -169,7 +171,11 @@ def collect_rollout(
 
         buffer.add(policy_obs, raw_action, reward, done, log_prob, value)
 
-        # Track episode stats
+        # Per-step stats (always available)
+        step_rewards.append(reward.mean().item())
+        step_rmses.append(info["rmse"].mean().item())
+
+        # Episode completion stats
         running_reward += reward
         running_rmse += info["rmse"]
         running_steps += 1
@@ -192,9 +198,13 @@ def collect_rollout(
     last_value = value_net(last_obs)
     buffer.compute_gae(last_value, gamma=gamma, lam=gae_lambda)
 
+    # Use episode stats if available, fall back to per-step stats
+    mean_rew = float(sum(ep_rewards) / len(ep_rewards)) if ep_rewards else float(sum(step_rewards) / len(step_rewards))
+    mean_rmse = float(sum(ep_rmses) / len(ep_rmses)) if ep_rmses else float(sum(step_rmses) / len(step_rmses))
+
     return {
-        "mean_reward": float(sum(ep_rewards) / max(len(ep_rewards), 1)),
-        "mean_rmse": float(sum(ep_rmses) / max(len(ep_rmses), 1)),
+        "mean_reward": mean_rew,
+        "mean_rmse": mean_rmse,
         "n_episodes": len(ep_rewards),
     }
 

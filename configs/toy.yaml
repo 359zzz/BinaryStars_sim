@@ -3,19 +3,20 @@
 
 # Environment
 n_per_arm: 2
-object_mass: 0.5
-arm_link_mass: [1.0, 0.5]
-arm_link_length: [0.3, 0.25]
+object_mass: 1.0           # strong cross-arm coupling (sigma_1 ~ 0.69)
+arm_link_mass: [3.0, 1.5]  # heavier links for numerical stability
+arm_link_length: [0.4, 0.3]
 damping: 0.5
 dt: 0.02
 max_steps: 200
-trajectory_freq: [0.5, 0.8]
-trajectory_amp: [0.3, 0.6]
+trajectory_freq: [0.3, 0.6]   # Hz — moderate tracking difficulty
+trajectory_amp: [0.15, 0.3]   # rad — achievable with action budget
 
-# PPO (GPU-optimized: large batch)
-n_envs: 512
+# PPO — n_envs=128 gives ~61 PPO updates at 2M steps
+# (512 envs would only give ~15 updates — too few for convergence)
+n_envs: 128
 n_steps: 256
-total_timesteps: 500000
+total_timesteps: 2000000
 clip_eps: 0.2
 lr_policy: 0.0003
 lr_value: 0.001
@@ -23,9 +24,9 @@ gamma: 0.99
 gae_lambda: 0.95
 entropy_coef: 0.01
 ppo_epochs: 4
-mini_batch_size: 4096
+mini_batch_size: 2048
 hidden_dim: 128
-action_scale: 10.0
+action_scale: 5.0           # matched to M eigenvalues (~0.02-1.1)
 
 # Experiment
 variants: [vanilla, coupling_features, modal_action]
@@ -33,4 +34,4 @@ seeds: [0, 1, 2, 3, 4]
 save_dir: results/toy
 
 # Object mass sweep (optional, run with --mass-sweep)
-mass_sweep: [0.0, 0.1, 0.3, 0.5, 1.0]
+mass_sweep: [0.0, 0.1, 0.5, 1.0, 2.0]

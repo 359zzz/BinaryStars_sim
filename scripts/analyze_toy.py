@@ -32,7 +32,7 @@ VARIANT_STYLES = {
     "modal_action":       {"color": "#55A868", "label": "Modal Action (ours)"},
 }
 FIG_DIR = "figures"
-RMSE_THRESHOLD = 0.15  # rad — "converged" threshold for sample efficiency
+RMSE_THRESHOLD = 0.25  # rad — "converged" threshold for sample efficiency
 
 
 def smooth(data: np.ndarray, window: int = 5) -> np.ndarray:

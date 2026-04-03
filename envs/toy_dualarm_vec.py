@@ -212,7 +212,8 @@ class ToyDualArmVecEnv:
         qddot = torch.linalg.solve(M, rhs)
         self.dq = self.dq + self.dt * qddot
         self.q = self.q + self.dt * self.dq
-        self.dq.clamp_(-10.0, 10.0)
+        self.dq.clamp_(-5.0, 5.0)
+        self.q.clamp_(-torch.pi, torch.pi)
 
         self.step_count += 1
 
