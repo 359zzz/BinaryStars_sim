@@ -143,6 +143,7 @@ class OpenArmReachEnv(gym.Env):
         """Classical coupling reward: weighted by |J_ij|."""
         q = self.data.qpos[:N_JOINTS]
         J = compute_openarm_coupling(q)
+        a = action / 50.0  # normalize to [-1, 1]
 
         penalty = 0.0
         Z = 0.0
@@ -151,7 +152,7 @@ class OpenArmReachEnv(gym.Env):
                 w = abs(J[i, j])
                 Z += w
                 sign_j = np.sign(J[i, j]) if abs(J[i, j]) > 1e-6 else 0.0
-                penalty += w * (action[i] - sign_j * action[j]) ** 2
+                penalty += w * (a[i] - sign_j * a[j]) ** 2
 
         if Z > 1e-8:
             penalty /= Z
@@ -161,7 +162,9 @@ class OpenArmReachEnv(gym.Env):
         """Quantum entanglement reward: weighted by C_ij (n-body).
 
         Key difference from classical: indirect coupling pairs (J_ij ~ 0 but C_ij > 0)
-        still contribute to coordination penalty.
+        still contribute to coordination penalty. For these pairs, the coordination
+        sign comes from the effective quantum coupling (H_eff off-diagonal) which
+        captures the n-body mediated interaction direction.
         """
         q = self.data.qpos[:N_JOINTS]
         if self._quantum_computer is None:
@@ -169,15 +172,23 @@ class OpenArmReachEnv(gym.Env):
 
         C = self._quantum_computer.get_entanglement_graph(q)
         J = self._quantum_computer.get_classical_coupling(q)
+        a = action / 50.0  # normalize to [-1, 1]
 
         penalty = 0.0
         Z = 0.0
         for i in range(N_JOINTS):
             for j in range(i + 1, N_JOINTS):
                 w = C[i, j]  # quantum weight (includes indirect coupling)
+                if w < 1e-8:
+                    continue
                 Z += w
-                sign_j = np.sign(J[i, j]) if abs(J[i, j]) > 1e-6 else 0.0
-                penalty += w * (action[i] - sign_j * action[j]) ** 2
+                # Use J_ij sign when available; for indirect pairs (J_ij~0),
+                # use +1 (cooperative) since shared-object coupling is positive.
+                if abs(J[i, j]) > 1e-6:
+                    sign_j = np.sign(J[i, j])
+                else:
+                    sign_j = 1.0
+                penalty += w * (a[i] - sign_j * a[j]) ** 2
 
         if Z > 1e-8:
             penalty /= Z
@@ -194,13 +205,13 @@ class OpenArmReachEnv(gym.Env):
         from quantum_prior.clustering import decompose_joints
         groups = decompose_joints(C)
 
+        a = action / 50.0  # normalize to [-1, 1]
         penalty = 0.0
         n_groups = 0
         for group in groups:
             if len(group) < 2:
                 continue
-            group_actions = action[group]
-            penalty += np.var(group_actions)
+            penalty += np.var(a[group])
             n_groups += 1
 
         if n_groups > 0:

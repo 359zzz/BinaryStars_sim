@@ -43,7 +43,7 @@ ALL_VARIANTS = ["vanilla", "geometric", "coupling", "quantum_c", "quantum_decomp
 VARIANT_CONFIG = {
     "vanilla":        ("vanilla",             False, 20),
     "geometric":      ("vanilla",             False, 20),
-    "coupling":       ("classical_coupling",  False, 20),
+    "coupling":       ("classical_coupling",  True,  41),  # fair: same 41-dim obs as quantum
     "quantum_c":      ("quantum_entanglement", True, 41),
     "quantum_decomp": ("quantum_decomposed",   True, 41),
 }
@@ -174,8 +174,13 @@ def _augment_obs(
     variant: str,
     quantum_computer,
 ) -> np.ndarray:
-    """Augment base observations with structure features if needed."""
-    if variant in ("vanilla", "geometric", "coupling"):
+    """Augment base observations with structure features if needed.
+
+    coupling:      +21-dim |J_ij| (classical pairwise)
+    quantum_c:     +21-dim C_ij  (quantum n-body concurrence)
+    quantum_decomp: +21-dim C_ij
+    """
+    if variant in ("vanilla", "geometric"):
         return obs_base
 
     n_envs = obs_base.shape[0]
@@ -183,7 +188,9 @@ def _augment_obs(
 
     for i in range(n_envs):
         q = obs_base[i, :7]
-        if variant in ("quantum_c", "quantum_decomp"):
+        if variant == "coupling":
+            feats[i] = quantum_computer.get_classical_features(q)
+        elif variant in ("quantum_c", "quantum_decomp"):
             feats[i] = quantum_computer.get_entanglement_features(q)
 
     return np.concatenate([obs_base, feats], axis=1)
