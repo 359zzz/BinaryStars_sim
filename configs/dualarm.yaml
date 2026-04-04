@@ -1,0 +1,33 @@
+# Dual-arm 14-DOF: quantum vs classical coupling-aware RL
+# Run: python -m coupling_rl.train_dualarm --config configs/dualarm.yaml --variant quantum_c --seed 0
+
+# PPO hyperparameters
+clip_eps: 0.2
+lr_policy: 0.0003
+lr_value: 0.001
+gamma: 0.99
+gae_lambda: 0.95
+entropy_coef: 0.01
+ppo_epochs: 4
+mini_batch_size: 2048
+n_steps: 2048
+n_envs: 8
+total_timesteps: 5000000
+hidden_dim: 256
+
+# Dual-arm specific
+object_mass: 1.0            # virtual object mass for M_eff cross-arm coupling
+
+# Coupling reward
+coupling_lambda: 1.0        # from beta sweep: 1.0 is optimal
+
+# Quantum prior parameters
+quantum_resolution: 0.3     # coarser grid for 14-DOF cache
+quantum_cache_size: 200000
+
+# Experiment: 4 variants x 10 seeds = 40 runs
+variants: [vanilla, coupling, quantum_c, quantum_decomp]
+seeds: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+
+# Output
+save_dir: results/dualarm
