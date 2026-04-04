@@ -242,27 +242,39 @@
     </body>
 
     <!-- ============================================================ -->
-    <!-- Graspable object                                             -->
+    <!-- Graspable object: 4040 aluminum profile (0.4m x 0.04m x 0.04m) -->
+    <!-- Long axis along X, connecting left and right grasp points      -->
     <!-- ============================================================ -->
-    <body name="object" pos="0 0.3 0.6">
+    <body name="object" pos="0 0 0.85">
       <joint name="object_free" type="free"/>
-      <geom type="box" size="0.05 0.05 0.05" material="object_mat"
+      <geom type="box" size="0.2 0.02 0.02" material="object_mat"
             mass="0.5" friction="1.0 0.005 0.0001"/>
+      <!-- Inertia of 0.4x0.04x0.04 bar, m=0.5kg:
+           I_xx = m(ly^2+lz^2)/12 = 1.33e-4  (around long axis)
+           I_yy = m(lx^2+lz^2)/12 = 6.73e-3  (around transverse)
+           I_zz = m(lx^2+ly^2)/12 = 6.73e-3  -->
       <inertial pos="0 0 0" mass="0.5"
-                fullinertia="8.33e-04 8.33e-04 8.33e-04 0 0 0"/>
+                fullinertia="1.33e-04 6.73e-03 6.73e-03 0 0 0"/>
       <site name="object_site" pos="0 0 0" size="0.01" rgba="1 1 0 1"/>
+      <!-- Grasp sites near each end of the bar -->
+      <site name="grasp_site_L" pos="-0.18 0 0" size="0.015" rgba="0 1 0 0.5"/>
+      <site name="grasp_site_R" pos="0.18 0 0" size="0.015" rgba="0 0 1 0.5"/>
     </body>
 
   </worldbody>
 
   <!-- ============================================================ -->
   <!-- Equality constraints (weld for grasping)                     -->
+  <!-- Left hand grasps left end, right hand grasps right end.      -->
+  <!-- relpose = pos of object center in link6 frame:               -->
+  <!--   Left:  object center is +0.18 in X from L_ee (left end)    -->
+  <!--   Right: object center is -0.18 in X from R_ee (right end)   -->
   <!-- ============================================================ -->
   <equality>
     <weld name="grasp_left"  body1="L_link6" body2="object"
-          relpose="0 0 0.07 1 0 0 0" active="false"/>
+          relpose="0.18 0 0.07 1 0 0 0" active="false"/>
     <weld name="grasp_right" body1="R_link6" body2="object"
-          relpose="0 0 0.07 1 0 0 0" active="false"/>
+          relpose="-0.18 0 0.07 1 0 0 0" active="false"/>
   </equality>
 
   <!-- ============================================================ -->
