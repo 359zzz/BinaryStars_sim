@@ -16,7 +16,7 @@ n_envs: 8
 total_timesteps: 5000000
 
 # Coupling reward (active for coupling/quantum_c/quantum_decomp)
-coupling_lambda: 2.0  # v1=0.1 was too small after action normalization
+coupling_lambda: 1.0  # v1=0.1 too small; sweep found 1.0 optimal (13% of total reward)
 
 # Quantum prior parameters
 quantum_resolution: 0.3   # coarser grid for better cache hits (v1=0.1)
