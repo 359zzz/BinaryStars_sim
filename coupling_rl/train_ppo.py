@@ -49,14 +49,16 @@ VARIANT_CONFIG = {
 }
 
 
-def _make_quantum_computer():
+def _make_quantum_computer(cfg: dict | None = None):
     """Create CachedEntanglementComputer with OpenArm mass matrix function."""
     from physics.openarm_params import compute_openarm_mass_matrix
     from quantum_prior.cached_computer import CachedEntanglementComputer
 
+    cfg = cfg or {}
     return CachedEntanglementComputer(
         mass_matrix_fn=compute_openarm_mass_matrix,
-        resolution=0.1,  # 0.1 rad ≈ 5.7°, cache hit rate >95%
+        resolution=cfg.get("quantum_resolution", 0.1),
+        cache_size=cfg.get("quantum_cache_size", 65536),
     )
 
 
@@ -84,6 +86,52 @@ def make_envs(
     return envs
 
 
+def _compute_episode_features(
+    q: np.ndarray,
+    variant: str,
+    quantum_computer,
+    env=None,
+) -> np.ndarray | None:
+    """Compute structure features once per episode reset (21-dim).
+
+    Also sets cached coupling matrices on the env for reward computation,
+    avoiding redundant M(q) recomputation every step.
+    """
+    if variant in ("vanilla", "geometric") or quantum_computer is None:
+        return None
+    if variant == "coupling":
+        J = quantum_computer.get_classical_coupling(q)
+        if env is not None:
+            env.set_cached_coupling(J=J)
+        return quantum_computer.get_classical_features(q)
+    else:  # quantum_c, quantum_decomp
+        C = quantum_computer.get_entanglement_graph(q)
+        J = quantum_computer.get_classical_coupling(q)
+        groups = None
+        if variant == "quantum_decomp":
+            from quantum_prior.clustering import decompose_joints
+            groups = decompose_joints(C)
+        if env is not None:
+            env.set_cached_coupling(J=J, C=C, groups=groups)
+        return quantum_computer.get_entanglement_features(q)
+
+
+def _augment_obs_cached(
+    obs_base: np.ndarray,
+    env_features: list[np.ndarray | None],
+    variant: str,
+) -> np.ndarray:
+    """Augment obs using precomputed episode-level features."""
+    if variant in ("vanilla", "geometric"):
+        return obs_base
+    n_envs = obs_base.shape[0]
+    feats = np.zeros((n_envs, 21), dtype=np.float32)
+    for i in range(n_envs):
+        if env_features[i] is not None:
+            feats[i] = env_features[i]
+    return np.concatenate([obs_base, feats], axis=1)
+
+
 def collect_rollout(
     envs: list[OpenArmReachEnv],
     policy: torch.nn.Module,
@@ -98,11 +146,18 @@ def collect_rollout(
     base_obs_dim = envs[0].observation_space.shape[0]
 
     obs_base = np.zeros((n_envs, base_obs_dim), dtype=np.float32)
+    # Episode-level feature cache: compute once per reset, reuse whole episode
+    env_features: list[np.ndarray | None] = [None] * n_envs
+
     for i, env in enumerate(envs):
         if not hasattr(env, "_current_obs"):
             obs, _ = env.reset()
             env._current_obs = obs
         obs_base[i] = env._current_obs
+        # Compute initial features + set env cache for reward
+        env_features[i] = _compute_episode_features(
+            obs_base[i, :7], variant, quantum_computer, env=env,
+        )
 
     ep_rewards = []
     ep_lengths = []
@@ -116,7 +171,7 @@ def collect_rollout(
 
     with torch.no_grad():
         for step in range(config.n_steps):
-            obs_np = _augment_obs(obs_base, variant, quantum_computer)
+            obs_np = _augment_obs_cached(obs_base, env_features, variant)
             obs_t = torch.from_numpy(obs_np)
 
             action, log_prob = policy.get_action(obs_t)
@@ -148,6 +203,10 @@ def collect_rollout(
                     current_ep_reward[i] = 0.0
                     current_ep_len[i] = 0
                     obs_new, _ = env.reset()
+                    # Recompute features for new episode + set env cache
+                    env_features[i] = _compute_episode_features(
+                        obs_new[:7], variant, quantum_computer, env=env,
+                    )
 
                 next_obs_base[i] = obs_new
                 env._current_obs = obs_new
@@ -155,7 +214,7 @@ def collect_rollout(
             buffer.add(obs_np, action_np, rewards, dones, log_prob_np, value_np)
             obs_base = next_obs_base
 
-        last_obs_np = _augment_obs(obs_base, variant, quantum_computer)
+        last_obs_np = _augment_obs_cached(obs_base, env_features, variant)
         last_obs_t = torch.from_numpy(last_obs_np)
         last_value = value_net(last_obs_t).numpy()
         buffer.compute_gae(last_value, config.gamma, config.gae_lambda)
@@ -232,7 +291,7 @@ def train(
     torch.manual_seed(seed)
     np.random.seed(seed)
 
-    quantum_computer = _make_quantum_computer() if needs_quantum else None
+    quantum_computer = _make_quantum_computer(cfg) if needs_quantum else None
 
     envs = make_envs(
         ppo_cfg.n_envs, variant, coupling_lambda, seed,

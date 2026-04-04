@@ -1,0 +1,32 @@
+# Scheme beta v2: Coupling-Aware RL with optimized lambda + cache
+# Changes from v1: coupling_lambda 0.1→2.0, total_timesteps 2M→5M,
+#   quantum_resolution 0.1→0.3, quantum_cache_size 65K→200K
+
+# PPO hyperparameters
+clip_eps: 0.2
+lr_policy: 0.0003
+lr_value: 0.001
+gamma: 0.99
+gae_lambda: 0.95
+entropy_coef: 0.01
+ppo_epochs: 4
+mini_batch_size: 2048
+n_steps: 2048
+n_envs: 8
+total_timesteps: 5000000
+
+# Coupling reward (active for coupling/quantum_c/quantum_decomp)
+coupling_lambda: 2.0  # v1=0.1 was too small after action normalization
+
+# Quantum prior parameters
+quantum_resolution: 0.3   # coarser grid for better cache hits (v1=0.1)
+quantum_cache_size: 200000 # larger cache for 7-DOF config space (v1=65536)
+quantum_t_max: 3.0
+quantum_n_time_steps: 50
+
+# Experiment: 5 variants x 10 seeds = 50 runs
+variants: [vanilla, geometric, coupling, quantum_c, quantum_decomp]
+seeds: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+
+# Output
+save_dir: results/beta

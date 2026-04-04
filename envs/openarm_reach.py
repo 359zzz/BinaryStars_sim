@@ -126,6 +126,17 @@ class OpenArmReachEnv(gym.Env):
         z = max(z, 0.1)
         return np.array([x, y, z], dtype=float)
 
+    def set_cached_coupling(
+        self,
+        J: np.ndarray | None = None,
+        C: np.ndarray | None = None,
+        groups: list | None = None,
+    ) -> None:
+        """Set episode-level cached coupling matrices (avoids per-step M(q) recompute)."""
+        self._cached_J = J
+        self._cached_C = C
+        self._cached_groups = groups
+
     def _compute_coupling_reward(self, action: np.ndarray) -> float:
         """Dispatch to reward mode."""
         if self.coupling_lambda <= 0 or self.reward_mode == "vanilla":
@@ -141,8 +152,10 @@ class OpenArmReachEnv(gym.Env):
 
     def _coupling_reward_classical(self, action: np.ndarray) -> float:
         """Classical coupling reward: weighted by |J_ij|."""
-        q = self.data.qpos[:N_JOINTS]
-        J = compute_openarm_coupling(q)
+        J = getattr(self, "_cached_J", None)
+        if J is None:
+            q = self.data.qpos[:N_JOINTS]
+            J = compute_openarm_coupling(q)
         a = action / 50.0  # normalize to [-1, 1]
 
         penalty = 0.0
@@ -166,12 +179,17 @@ class OpenArmReachEnv(gym.Env):
         sign comes from the effective quantum coupling (H_eff off-diagonal) which
         captures the n-body mediated interaction direction.
         """
-        q = self.data.qpos[:N_JOINTS]
-        if self._quantum_computer is None:
-            return 0.0
-
-        C = self._quantum_computer.get_entanglement_graph(q)
-        J = self._quantum_computer.get_classical_coupling(q)
+        C = getattr(self, "_cached_C", None)
+        J = getattr(self, "_cached_J", None)
+        if C is None:
+            q = self.data.qpos[:N_JOINTS]
+            if self._quantum_computer is None:
+                return 0.0
+            C = self._quantum_computer.get_entanglement_graph(q)
+            J = self._quantum_computer.get_classical_coupling(q)
+        elif J is None:
+            q = self.data.qpos[:N_JOINTS]
+            J = compute_openarm_coupling(q)
         a = action / 50.0  # normalize to [-1, 1]
 
         penalty = 0.0
@@ -196,14 +214,14 @@ class OpenArmReachEnv(gym.Env):
 
     def _coupling_reward_quantum_decomposed(self, action: np.ndarray) -> float:
         """Quantum decomposed reward: entanglement clustering + within-group variance."""
-        q = self.data.qpos[:N_JOINTS]
-        if self._quantum_computer is None:
-            return 0.0
-
-        C = self._quantum_computer.get_entanglement_graph(q)
-
-        from quantum_prior.clustering import decompose_joints
-        groups = decompose_joints(C)
+        groups = getattr(self, "_cached_groups", None)
+        if groups is None:
+            q = self.data.qpos[:N_JOINTS]
+            if self._quantum_computer is None:
+                return 0.0
+            C = self._quantum_computer.get_entanglement_graph(q)
+            from quantum_prior.clustering import decompose_joints
+            groups = decompose_joints(C)
 
         a = action / 50.0  # normalize to [-1, 1]
         penalty = 0.0
@@ -225,6 +243,11 @@ class OpenArmReachEnv(gym.Env):
         options: dict[str, Any] | None = None,
     ) -> tuple[np.ndarray, dict[str, Any]]:
         super().reset(seed=seed)
+
+        # Clear episode-level coupling cache (will be refilled by train loop)
+        self._cached_J = None
+        self._cached_C = None
+        self._cached_groups = None
 
         mujoco.mj_resetData(self.model, self.data)
 
