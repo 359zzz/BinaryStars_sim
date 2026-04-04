@@ -119,6 +119,9 @@ def make_envs(
     object_mass: float,
     seed: int,
     quantum_computer=None,
+    task_mode: str = "independent",
+    grasp_width: float = 0.4,
+    grasp_penalty: float = 5.0,
 ) -> list[DualArmReachEnv]:
     """Create dual-arm environments."""
     reward_mode, needs_quantum, _ = VARIANT_CONFIG[variant]
@@ -127,8 +130,11 @@ def make_envs(
     envs = []
     for i in range(n_envs):
         env = DualArmReachEnv(
+            task_mode=task_mode,
             object_mass=object_mass,
             coupling_lambda=lam,
+            grasp_width=grasp_width,
+            grasp_penalty=grasp_penalty,
             reward_mode=reward_mode,
             quantum_computer=quantum_computer if needs_quantum else None,
         )
@@ -261,6 +267,9 @@ def train(
     )
     coupling_lambda = cfg.get("coupling_lambda", 1.0)
     object_mass = cfg.get("object_mass", 1.0)
+    task_mode = cfg.get("task_mode", "independent")
+    grasp_width = cfg.get("grasp_width", 0.4)
+    grasp_penalty = cfg.get("grasp_penalty", 5.0)
 
     device = "cpu"
     torch.manual_seed(seed)
@@ -271,6 +280,9 @@ def train(
     envs = make_envs(
         ppo_cfg.n_envs, variant, coupling_lambda, object_mass, seed,
         quantum_computer=quantum_computer,
+        task_mode=task_mode,
+        grasp_width=grasp_width,
+        grasp_penalty=grasp_penalty,
     )
 
     # Networks — larger hidden dim for 14-DOF
