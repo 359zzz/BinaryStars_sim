@@ -294,8 +294,8 @@ class DualArmReachEnv(gym.Env):
 
         if self.task_mode == "transport_weld":
             # Activate weld constraints
-            self.model.eq_active[self._grasp_L_eq] = True
-            self.model.eq_active[self._grasp_R_eq] = True
+            self.model.eq_active0[self._grasp_L_eq] = True
+            self.model.eq_active0[self._grasp_R_eq] = True
             # Place object between the EEs
             mujoco.mj_forward(self.model, self.data)
             ee_L = self.data.site_xpos[self._ee_L_site]
@@ -306,12 +306,12 @@ class DualArmReachEnv(gym.Env):
             self._target = self._sample_transport_target()
         elif self.task_mode == "transport_virtual":
             # Deactivate weld constraints (virtual object)
-            self.model.eq_active[self._grasp_L_eq] = False
-            self.model.eq_active[self._grasp_R_eq] = False
+            self.model.eq_active0[self._grasp_L_eq] = False
+            self.model.eq_active0[self._grasp_R_eq] = False
             self._target = self._sample_transport_target()
         else:  # independent
-            self.model.eq_active[self._grasp_L_eq] = False
-            self.model.eq_active[self._grasp_R_eq] = False
+            self.model.eq_active0[self._grasp_L_eq] = False
+            self.model.eq_active0[self._grasp_R_eq] = False
             self._target_L = self._sample_arm_target("left")
             self._target_R = self._sample_arm_target("right")
 
